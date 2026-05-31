@@ -42,6 +42,7 @@ Build in two layers:
 - `docs/09_iwbf_terms.md`: terminology to use in UI.
 - `docs/10_claude_code_start_prompt.md`: pasteable prompt to start development.
 - `docs/11_repository_setup.md`: GitHub, Codespaces, and GitHub Pages notes.
+- `docs/12_visual_design_direction.md`: modern premium IWBF-inspired design direction.
 - `docs/samples/madrid_guadalajara_import_notes.md`: notes from the sample entry-list ZIP.
 
 ## Non-Goals

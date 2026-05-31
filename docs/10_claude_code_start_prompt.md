@@ -9,6 +9,8 @@ Read CLAUDE.md and all files in docs/ before coding.
 
 The app must be native Android-first, Kotlin + Jetpack Compose, optimized for Samsung Galaxy Tab with S Pen. UI language is English and should use IWBF terminology.
 
+Before implementing UI, read docs/12_visual_design_direction.md. The app should look modern, premium, minimal, and field-ready, inspired by IWBF's public visual language without using official logos or implying endorsement. Use a dark institutional shell with charcoal surfaces, white/gray text, and muted gold accents. The handwriting canvas should be light and paper-like.
+
 Core MVP:
 
 1. Local-first Competition records.
@@ -39,6 +41,17 @@ Core MVP:
 
 Start by scaffolding the Android project and implementing Phase 1 from docs/08_mvp_build_plan.md.
 
-Before implementation, propose the project structure and key data classes. Keep the first implementation small but real.
-```
+Before implementation, propose the project structure, key data classes, and a small Compose design system:
 
+- AppColors
+- AppTypography
+- AppSpacing
+- AppShapes
+- primary/secondary/destructive buttons
+- roster player chip
+- class selector
+- observation top bar
+- paper note canvas container
+
+Keep the first implementation small but real.
+```

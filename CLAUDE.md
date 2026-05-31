@@ -19,6 +19,7 @@ The primary user is an IWBF classifier using a Samsung Galaxy Tab with S Pen dur
 
 - The app UI must be in English.
 - Use IWBF-style terminology: Player, Team, Competition, Game, Sport Class, Sport Class Status, New, Review, Confirmed, Observation Assessment, First Appearance, Classification Panel.
+- Follow `docs/12_visual_design_direction.md` before implementing UI. The app should feel modern, premium, minimal, and field-ready, with an IWBF-inspired dark/charcoal/gold visual language and a light paper-like handwriting canvas.
 - S Pen writes. Finger navigates.
 - Avoid typing during game flow unless editing roster metadata.
 - Player switching must be one tap.
@@ -68,4 +69,3 @@ Core MVP:
 ## Read Before Coding
 
 Read all files in `docs/` before implementing.
-

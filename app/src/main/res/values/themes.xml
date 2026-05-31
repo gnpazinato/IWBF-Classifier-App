@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark institutional shell; actual UI colors are applied by Compose (ClassifierTheme). -->
+    <style name="Theme.IWBFClassifier" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/ink_black</item>
+        <item name="android:statusBarColor">@color/ink_black</item>
+        <item name="android:navigationBarColor">@color/ink_black</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

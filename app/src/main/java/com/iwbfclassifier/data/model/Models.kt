@@ -49,13 +49,20 @@ data class Player(
     val updatedAt: String,
 )
 
-/** A YouTube moment (link + timestamp) attached to a Player's notes (docs/06). */
+/**
+ * A YouTube moment attached to a Player (docs/06). A one-tap "Flag Moment" captures
+ * the current player time and stores a slow-motion window around it: [startSeconds]
+ * (≈ tap − 5s), [endSeconds] (≈ tap + 5s) and [playbackRate] (0.5x by default). The
+ * embedded player replays exactly this window; [url] is a plain link fallback.
+ */
 @Serializable
 data class VideoEvidence(
     val id: String,
     val url: String,
     val videoId: String? = null,
     val startSeconds: Int? = null,
+    val endSeconds: Int? = null,
+    val playbackRate: Double = 1.0,
     val label: String? = null,
     val createdAt: String,
 )

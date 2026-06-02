@@ -2,14 +2,20 @@ package com.iwbfclassifier.ui.observation
 
 import android.content.res.Configuration
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
@@ -21,14 +27,25 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.iwbfclassifier.core.buildYoutubeUrl
+import com.iwbfclassifier.core.extractYoutubeId
+import com.iwbfclassifier.core.formatSeconds
+import com.iwbfclassifier.core.newId
 import com.iwbfclassifier.core.nowIso
+import com.iwbfclassifier.data.model.Game
 import com.iwbfclassifier.data.model.InkStroke
 import com.iwbfclassifier.data.model.NotePage
 import com.iwbfclassifier.data.model.Player
@@ -43,10 +60,14 @@ import com.iwbfclassifier.ui.components.EmptyState
 import com.iwbfclassifier.ui.components.NoteCanvasPanel
 import com.iwbfclassifier.ui.components.ObservationTopBar
 import com.iwbfclassifier.ui.components.PlayerChip
+import com.iwbfclassifier.ui.components.PrimaryButton
 import com.iwbfclassifier.ui.components.SecondaryButton
 import com.iwbfclassifier.ui.components.SectionLabel
 import com.iwbfclassifier.ui.components.VideoEvidenceSection
+import com.iwbfclassifier.ui.components.YouTubePlayerController
+import com.iwbfclassifier.ui.components.YouTubePlayerPanel
 import com.iwbfclassifier.ui.theme.AppColors
+import com.iwbfclassifier.ui.theme.AppShapes
 import com.iwbfclassifier.ui.theme.AppSpacing
 import com.iwbfclassifier.ui.theme.AppTypography
 import kotlinx.coroutines.delay
@@ -74,8 +95,15 @@ class ObservationViewModel(
         .map { list -> list.filter { it.competitionId == competitionId && it.active } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), repo.players.value.filter { it.competitionId == competitionId && it.active })
 
+    private val _game = MutableStateFlow<Game?>(null)
+    val game = _game.asStateFlow()
+
     private val _saving = MutableStateFlow(false)
     val saving = _saving.asStateFlow()
+
+    init {
+        viewModelScope.launch { _game.value = repo.loadGame(competitionId) }
+    }
 
     fun save(updated: Player) {
         viewModelScope.launch {
@@ -117,14 +145,28 @@ fun ObservationScreen(
     val competition by vm.competition.collectAsStateWithLifecycle()
     val teams by vm.teams.collectAsStateWithLifecycle()
     val players by vm.players.collectAsStateWithLifecycle()
+    val game by vm.game.collectAsStateWithLifecycle()
     val saving by vm.saving.collectAsStateWithLifecycle()
 
     var selectedPlayerId by remember { mutableStateOf<String?>(null) }
     var target by remember { mutableStateOf(ClassTarget.MyOpinion) }
 
     val selectedPlayer = players.firstOrNull { it.id == selectedPlayerId }
-    val teamA = teams.getOrNull(0)
-    val teamB = teams.getOrNull(1)
+    // Teams come from the chosen game; fall back to the first two active teams.
+    val teamA = game?.teamAId?.let { id -> teams.firstOrNull { it.id == id } } ?: teams.getOrNull(0)
+    val teamB = game?.teamBId?.let { id -> teams.firstOrNull { it.id == id } } ?: teams.getOrNull(1)
+
+    // Embedded YouTube player + the game's livestream video id.
+    val controller = remember { YouTubePlayerController() }
+    val videoId = game?.youtube?.videoId ?: extractYoutubeId(game?.youtube?.url)
+    LaunchedEffect(videoId) { if (videoId != null) controller.load(videoId) }
+
+    // Resizable video panel height.
+    val density = LocalDensity.current
+    var videoHeight by remember { mutableStateOf(220.dp) }
+    fun changeHeight(deltaPx: Float) {
+        videoHeight = with(density) { (videoHeight.toPx() + deltaPx).toDp() }.coerceIn(120.dp, 560.dp)
+    }
 
     // Handwritten notes, loaded per player and autosaved.
     var strokes by remember(selectedPlayerId) { mutableStateOf(emptyList<InkStroke>()) }
@@ -151,68 +193,170 @@ fun ObservationScreen(
     }
 
     val onAddStroke: (InkStroke) -> Unit = { s -> strokes = strokes + s; undone = emptyList(); notesDirty = true }
-    val onErase: (Set<Int>) -> Unit = { idxs -> strokes = strokes.filterIndexed { i, _ -> i !in idxs }; undone = emptyList(); notesDirty = true }
+    val onErase: (List<InkStroke>) -> Unit = { newList -> strokes = newList; undone = emptyList(); notesDirty = true }
     val onUndo: () -> Unit = { if (strokes.isNotEmpty()) { undone = undone + strokes.last(); strokes = strokes.dropLast(1); notesDirty = true } }
     val onRedo: () -> Unit = { if (undone.isNotEmpty()) { strokes = strokes + undone.last(); undone = undone.dropLast(1); notesDirty = true } }
     val onClear: () -> Unit = { if (strokes.isNotEmpty()) { undone = emptyList(); strokes = emptyList(); notesDirty = true } }
+
+    // One-tap moment: capture the player's current second and store a -5s/+5s, 0.5x window.
+    val onAddMoment: () -> Unit = onAdd@{
+        val player = selectedPlayer ?: return@onAdd
+        val vid = videoId ?: return@onAdd
+        val t = controller.currentSeconds().toInt()
+        val start = (t - 5).coerceAtLeast(0)
+        val original = game?.youtube?.url ?: "https://youtu.be/$vid"
+        vm.addVideo(
+            player,
+            VideoEvidence(
+                id = newId(),
+                url = buildYoutubeUrl(vid, original, start),
+                videoId = vid,
+                startSeconds = start,
+                endSeconds = t + 5,
+                playbackRate = 0.5,
+                label = "Moment @ ${formatSeconds(t) ?: "${t}s"}",
+                createdAt = nowIso(),
+            ),
+        )
+    }
+    val onReplay: (VideoEvidence) -> Unit = { ev ->
+        controller.playWindow(
+            startSeconds = ev.startSeconds ?: 0,
+            endSeconds = ev.endSeconds,
+            rate = if (ev.playbackRate > 0.0) ev.playbackRate else 0.5,
+        )
+    }
 
     val portrait = LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
 
     Column(Modifier.fillMaxSize().background(AppColors.InkBlack)) {
         ObservationTopBar(
             competitionName = competition?.name ?: "Observation",
-            gameName = null,
+            gameName = teamA?.name?.let { a -> teamB?.name?.let { b -> "$a  vs  $b" } },
             saving = saving,
             onBack = onBack,
         )
 
-        if (portrait) {
-            Column(Modifier.fillMaxSize()) {
-                ObservationWorkArea(
-                    player = selectedPlayer,
-                    target = target,
-                    onTargetChange = { target = it },
-                    onSelectClass = { sc -> selectedPlayer?.let { vm.save(applyClass(it, target, sc)) } },
-                    onOpenPlayer = onOpenPlayer,
-                    strokes = strokes,
-                    undone = undone,
-                    onAddStroke = onAddStroke,
-                    onErase = onErase,
-                    onUndo = onUndo,
-                    onRedo = onRedo,
-                    onClear = onClear,
-                    onAddVideo = { ev -> selectedPlayer?.let { vm.addVideo(it, ev) } },
-                    onRemoveVideo = { ev -> selectedPlayer?.let { vm.removeVideo(it, ev) } },
-                    modifier = Modifier.fillMaxWidth().weight(0.6f),
-                )
-                Row(Modifier.fillMaxWidth().weight(0.4f)) {
-                    PlayerRail(teamA, players, selectedPlayerId, ::selectPlayer, Modifier.weight(1f).fillMaxHeight())
-                    PlayerRail(teamB, players, selectedPlayerId, ::selectPlayer, Modifier.weight(1f).fillMaxHeight())
+        if (videoId != null) {
+            ObservationVideoBand(
+                controller = controller,
+                videoHeight = videoHeight,
+                onResize = { delta -> changeHeight(delta) },
+                onAddMoment = onAddMoment,
+                canAddMoment = selectedPlayer != null,
+            )
+        }
+
+        Box(Modifier.fillMaxWidth().weight(1f)) {
+            if (portrait) {
+                Column(Modifier.fillMaxSize()) {
+                    ObservationWorkArea(
+                        player = selectedPlayer,
+                        target = target,
+                        onTargetChange = { target = it },
+                        onSelectClass = { sc -> selectedPlayer?.let { vm.save(applyClass(it, target, sc)) } },
+                        onOpenPlayer = onOpenPlayer,
+                        strokes = strokes,
+                        undone = undone,
+                        onAddStroke = onAddStroke,
+                        onErase = onErase,
+                        onUndo = onUndo,
+                        onRedo = onRedo,
+                        onClear = onClear,
+                        onAddVideo = { ev -> selectedPlayer?.let { vm.addVideo(it, ev) } },
+                        onRemoveVideo = { ev -> selectedPlayer?.let { vm.removeVideo(it, ev) } },
+                        onReplayVideo = if (videoId != null) onReplay else null,
+                        showAddVideoButton = videoId == null,
+                        modifier = Modifier.fillMaxWidth().weight(0.6f),
+                    )
+                    Row(Modifier.fillMaxWidth().weight(0.4f)) {
+                        PlayerRail(teamA, players, selectedPlayerId, ::selectPlayer, Modifier.weight(1f).fillMaxHeight())
+                        PlayerRail(teamB, players, selectedPlayerId, ::selectPlayer, Modifier.weight(1f).fillMaxHeight())
+                    }
+                }
+            } else {
+                Row(Modifier.fillMaxSize()) {
+                    PlayerRail(teamA, players, selectedPlayerId, ::selectPlayer, Modifier.weight(0.24f).fillMaxHeight())
+                    ObservationWorkArea(
+                        player = selectedPlayer,
+                        target = target,
+                        onTargetChange = { target = it },
+                        onSelectClass = { sc -> selectedPlayer?.let { vm.save(applyClass(it, target, sc)) } },
+                        onOpenPlayer = onOpenPlayer,
+                        strokes = strokes,
+                        undone = undone,
+                        onAddStroke = onAddStroke,
+                        onErase = onErase,
+                        onUndo = onUndo,
+                        onRedo = onRedo,
+                        onClear = onClear,
+                        onAddVideo = { ev -> selectedPlayer?.let { vm.addVideo(it, ev) } },
+                        onRemoveVideo = { ev -> selectedPlayer?.let { vm.removeVideo(it, ev) } },
+                        onReplayVideo = if (videoId != null) onReplay else null,
+                        showAddVideoButton = videoId == null,
+                        modifier = Modifier.weight(0.52f).fillMaxHeight(),
+                    )
+                    PlayerRail(teamB, players, selectedPlayerId, ::selectPlayer, Modifier.weight(0.24f).fillMaxHeight())
                 }
             }
-        } else {
-            Row(Modifier.fillMaxSize()) {
-                PlayerRail(teamA, players, selectedPlayerId, ::selectPlayer, Modifier.weight(0.24f).fillMaxHeight())
-                ObservationWorkArea(
-                    player = selectedPlayer,
-                    target = target,
-                    onTargetChange = { target = it },
-                    onSelectClass = { sc -> selectedPlayer?.let { vm.save(applyClass(it, target, sc)) } },
-                    onOpenPlayer = onOpenPlayer,
-                    strokes = strokes,
-                    undone = undone,
-                    onAddStroke = onAddStroke,
-                    onErase = onErase,
-                    onUndo = onUndo,
-                    onRedo = onRedo,
-                    onClear = onClear,
-                    onAddVideo = { ev -> selectedPlayer?.let { vm.addVideo(it, ev) } },
-                    onRemoveVideo = { ev -> selectedPlayer?.let { vm.removeVideo(it, ev) } },
-                    modifier = Modifier.weight(0.52f).fillMaxHeight(),
-                )
-                PlayerRail(teamB, players, selectedPlayerId, ::selectPlayer, Modifier.weight(0.24f).fillMaxHeight())
-            }
         }
+    }
+}
+
+@Composable
+private fun ObservationVideoBand(
+    controller: YouTubePlayerController,
+    videoHeight: Dp,
+    onResize: (Float) -> Unit,
+    onAddMoment: () -> Unit,
+    canAddMoment: Boolean,
+) {
+    val density = LocalDensity.current
+    val stepPx = with(density) { 72.dp.toPx() }
+    Column(Modifier.fillMaxWidth().background(AppColors.PanelBlack)) {
+        YouTubePlayerPanel(
+            controller = controller,
+            modifier = Modifier.fillMaxWidth().height(videoHeight),
+        )
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = AppSpacing.md, vertical = AppSpacing.sm),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm),
+        ) {
+            PrimaryButton(
+                text = if (canAddMoment) "＋ Add Moment" else "Select a player",
+                onClick = onAddMoment,
+                enabled = canAddMoment,
+                modifier = Modifier.weight(1f),
+            )
+            SizeStepButton("−") { onResize(-stepPx) }
+            SizeStepButton("+") { onResize(stepPx) }
+        }
+        // Drag the handle to resize the video; also adjustable with − / + above.
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(20.dp)
+                .pointerInput(Unit) { detectVerticalDragGestures { _, delta -> onResize(delta) } },
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(Modifier.size(width = 56.dp, height = 4.dp).clip(AppShapes.button).background(AppColors.DividerGray))
+        }
+    }
+}
+
+@Composable
+private fun SizeStepButton(label: String, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .size(48.dp)
+            .clip(AppShapes.button)
+            .background(AppColors.CardCharcoal)
+            .border(1.dp, AppColors.DividerGray, AppShapes.button)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, style = AppTypography.header, color = AppColors.TextPrimary, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -226,12 +370,14 @@ private fun ObservationWorkArea(
     strokes: List<InkStroke>,
     undone: List<InkStroke>,
     onAddStroke: (InkStroke) -> Unit,
-    onErase: (Set<Int>) -> Unit,
+    onErase: (List<InkStroke>) -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onClear: () -> Unit,
     onAddVideo: (VideoEvidence) -> Unit,
     onRemoveVideo: (VideoEvidence) -> Unit,
+    onReplayVideo: ((VideoEvidence) -> Unit)?,
+    showAddVideoButton: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -257,12 +403,13 @@ private fun ObservationWorkArea(
                 evidence = player.videoEvidence,
                 onAdd = onAddVideo,
                 onRemove = onRemoveVideo,
-                compact = true,
+                onReplay = onReplayVideo,
+                showAddButton = showAddVideoButton,
             )
             NoteCanvasPanel(
                 strokes = strokes,
                 onAddStroke = onAddStroke,
-                onEraseStrokes = onErase,
+                onErase = onErase,
                 onUndo = onUndo,
                 onRedo = onRedo,
                 onClear = onClear,
@@ -325,7 +472,7 @@ private fun PlayerHeader(player: Player, onEditDetails: () -> Unit) {
             )
             val summary = buildList {
                 player.importedSportClass?.let { add("Imported ${it.code}") }
-                player.startingSportClass?.let { add("Start ${it.code}") }
+                player.startingSportClass?.let { add("Initial ${it.code}") }
                 player.myOpinionSportClass?.let { add("Opinion ${it.code}") }
                 player.finalSportClass?.let { add("Final ${it.code}") }
             }.joinToString("  ·  ")

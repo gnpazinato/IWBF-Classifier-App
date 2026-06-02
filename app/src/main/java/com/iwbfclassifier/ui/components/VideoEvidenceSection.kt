@@ -50,16 +50,18 @@ fun VideoEvidenceSection(
     onRemove: (VideoEvidence) -> Unit,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
+    showAddButton: Boolean = true,
+    onReplay: ((VideoEvidence) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     var showAdd by remember { mutableStateOf(false) }
 
     Column(modifier, verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            val title = if (evidence.isEmpty()) "Video Evidence (YouTube)"
-            else "Video Evidence (${evidence.size})"
+            val title = if (evidence.isEmpty()) "Key Moments (YouTube)"
+            else "Key Moments (${evidence.size})"
             SectionLabel(title, modifier = Modifier.weight(1f))
-            SecondaryButton("Add Moment", onClick = { showAdd = true })
+            if (showAddButton) SecondaryButton("Add Moment", onClick = { showAdd = true })
         }
 
         if (compact) {
@@ -81,7 +83,7 @@ fun VideoEvidenceSection(
                         .padding(AppSpacing.md),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Column(Modifier.weight(1f).clickable { openLink(context, ev.url) }) {
+                    Column(Modifier.weight(1f).clickable { onReplay?.invoke(ev) ?: openLink(context, ev.url) }) {
                         Text(
                             ev.label?.takeIf { it.isNotBlank() } ?: "YouTube moment",
                             style = AppTypography.body,
@@ -89,11 +91,15 @@ fun VideoEvidenceSection(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        val sub = listOfNotNull(
-                            formatSeconds(ev.startSeconds)?.let { "@ $it" },
-                            ev.url,
-                        ).joinToString("  ·  ")
+                        val window = formatSeconds(ev.startSeconds)?.let { s ->
+                            formatSeconds(ev.endSeconds)?.let { e -> "$s–$e" } ?: "@ $s"
+                        }
+                        val rate = if (ev.playbackRate != 1.0) "${ev.playbackRate}x" else null
+                        val sub = listOfNotNull(window, rate, ev.url).joinToString("  ·  ")
                         Text(sub, style = AppTypography.microLabel, color = AppColors.Gold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    if (onReplay != null) {
+                        TextButton(onClick = { onReplay(ev) }) { Text("Replay", color = AppColors.Gold) }
                     }
                     TextButton(onClick = { openLink(context, ev.url) }) { Text("Open", color = AppColors.Gold) }
                     TextButton(onClick = { onRemove(ev) }) { Text("Remove", color = AppColors.TextSecondary) }

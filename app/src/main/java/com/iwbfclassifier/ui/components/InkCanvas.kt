@@ -35,6 +35,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.PointerInputChange
+import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import com.iwbfclassifier.data.model.InkPoint
@@ -51,6 +53,7 @@ private const val PEN_COLOR = 0xFF111111L
 private const val HIGHLIGHTER_COLOR = 0x55A3975DL
 private const val PEN_WIDTH_DP = 2.5f
 private const val HIGHLIGHTER_WIDTH_DP = 14f
+private const val ERASER_RADIUS_DP = 22f
 
 private fun Long.toComposeColor(): Color {
     val a = ((this shr 24) and 0xFF).toInt()
@@ -60,10 +63,22 @@ private fun Long.toComposeColor(): Color {
     return Color(red = r, green = g, blue = b, alpha = a)
 }
 
+/** True only for the S Pen (tip or button-eraser). Finger/palm touches return false. */
+private fun PointerInputChange.isStylus(): Boolean =
+    type == PointerType.Stylus || type == PointerType.Eraser
+
 /**
- * Low-latency freehand ink surface. Captures the primary pointer (S Pen or finger)
- * and draws smoothed strokes. Points are normalized to the canvas so saved notes
- * survive rotation. Extra simultaneous pointers are ignored (basic palm rejection).
+ * Low-latency freehand ink surface.
+ *
+ * Palm rejection (user request): only the S Pen writes — finger and palm touches are
+ * ignored entirely, so a hand resting on the screen never draws or interrupts the pen
+ * ("S Pen writes. Finger navigates.", CLAUDE.md).
+ *
+ * Eraser (user request): a rubber circle that erases by rubbing. As the pen moves with
+ * the eraser tool (or the S Pen's button-eraser), ink under the circle is removed live,
+ * splitting strokes — not a tap that deletes a whole stroke.
+ *
+ * Points are normalized to the canvas so saved notes survive rotation.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -71,16 +86,18 @@ fun InkCanvas(
     strokes: List<InkStroke>,
     tool: CanvasTool,
     onAddStroke: (InkStroke) -> Unit,
-    onEraseStrokes: (Set<Int>) -> Unit,
+    onErase: (List<InkStroke>) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val strokesState = rememberUpdatedState(strokes)
     val toolState = rememberUpdatedState(tool)
     val onAddState = rememberUpdatedState(onAddStroke)
-    val onEraseState = rememberUpdatedState(onEraseStrokes)
+    val onEraseState = rememberUpdatedState(onErase)
 
-    // Live in-progress stroke, in canvas px. Read inside the Canvas draw to redraw.
+    // Live in-progress pen stroke, in canvas px. Read inside the Canvas draw to redraw.
     var live by remember { mutableStateOf<List<Offset>>(emptyList()) }
+    // Eraser cursor position while rubbing (null when idle).
+    var eraserPos by remember { mutableStateOf<Offset?>(null) }
 
     Canvas(
         modifier = modifier
@@ -88,63 +105,126 @@ fun InkCanvas(
             .clipToBounds()
             .pointerInput(Unit) {
                 val scope = this
+                val eraserRadiusPx = ERASER_RADIUS_DP.dp.toPx()
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     val w = scope.size.width.toFloat()
                     val h = scope.size.height.toFloat()
                     if (w <= 0f || h <= 0f) return@awaitEachGesture
 
-                    val pts = mutableListOf(down.position)
-                    live = pts.toList()
+                    // Palm rejection: ignore anything that is not the S Pen. We don't
+                    // consume it, so finger gestures stay available for navigation.
+                    if (!down.isStylus()) return@awaitEachGesture
+
+                    val erasing = toolState.value == CanvasTool.ERASER || down.type == PointerType.Eraser
                     down.consume()
 
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        change.historical.forEach { pts.add(it.position) }
-                        pts.add(change.position)
-                        change.consume()
+                    if (erasing) {
+                        var working = strokesState.value
+                        fun rubAt(pos: Offset) {
+                            val next = eraseAt(working, pos, eraserRadiusPx, w, h)
+                            if (next !== working) { working = next; onEraseState.value(next) }
+                        }
+                        eraserPos = down.position
+                        rubAt(down.position)
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            change.historical.forEach { rubAt(it.position) }
+                            rubAt(change.position)
+                            eraserPos = change.position
+                            change.consume()
+                            if (!change.pressed) break
+                        }
+                        eraserPos = null
+                    } else {
+                        val pts = mutableListOf(down.position)
                         live = pts.toList()
-                        if (!change.pressed) break
-                    }
-
-                    when (toolState.value) {
-                        CanvasTool.ERASER -> {
-                            val radiusPx = 16.dp.toPx()
-                            val hit = strokesState.value.indicesIntersecting(pts, w, h, radiusPx)
-                            if (hit.isNotEmpty()) onEraseState.value(hit)
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            change.historical.forEach { pts.add(it.position) }
+                            pts.add(change.position)
+                            change.consume()
+                            live = pts.toList()
+                            if (!change.pressed) break
                         }
-                        CanvasTool.PEN, CanvasTool.HIGHLIGHTER -> {
-                            val isHi = toolState.value == CanvasTool.HIGHLIGHTER
-                            val norm = pts.map {
-                                InkPoint((it.x / w).coerceIn(0f, 1f), (it.y / h).coerceIn(0f, 1f))
-                            }
-                            onAddState.value(
-                                InkStroke(
-                                    tool = if (isHi) InkTool.HIGHLIGHTER else InkTool.PEN,
-                                    color = if (isHi) HIGHLIGHTER_COLOR else PEN_COLOR,
-                                    widthDp = if (isHi) HIGHLIGHTER_WIDTH_DP else PEN_WIDTH_DP,
-                                    points = norm,
-                                ),
-                            )
+                        val isHi = toolState.value == CanvasTool.HIGHLIGHTER
+                        val norm = pts.map {
+                            InkPoint((it.x / w).coerceIn(0f, 1f), (it.y / h).coerceIn(0f, 1f))
                         }
+                        onAddState.value(
+                            InkStroke(
+                                tool = if (isHi) InkTool.HIGHLIGHTER else InkTool.PEN,
+                                color = if (isHi) HIGHLIGHTER_COLOR else PEN_COLOR,
+                                widthDp = if (isHi) HIGHLIGHTER_WIDTH_DP else PEN_WIDTH_DP,
+                                points = norm,
+                            ),
+                        )
+                        live = emptyList()
                     }
-                    live = emptyList()
                 }
             },
     ) {
         strokes.forEach { drawInkStroke(it, size.width, size.height) }
-        if (live.isNotEmpty()) {
+        if (live.isNotEmpty() && tool != CanvasTool.ERASER) {
             val isHi = tool == CanvasTool.HIGHLIGHTER
-            if (tool != CanvasTool.ERASER) {
-                drawSmoothPath(
-                    pts = live,
-                    color = (if (isHi) HIGHLIGHTER_COLOR else PEN_COLOR).toComposeColor(),
-                    widthPx = (if (isHi) HIGHLIGHTER_WIDTH_DP else PEN_WIDTH_DP).dp.toPx(),
-                )
-            }
+            drawSmoothPath(
+                pts = live,
+                color = (if (isHi) HIGHLIGHTER_COLOR else PEN_COLOR).toComposeColor(),
+                widthPx = (if (isHi) HIGHLIGHTER_WIDTH_DP else PEN_WIDTH_DP).dp.toPx(),
+            )
+        }
+        eraserPos?.let { c ->
+            val r = ERASER_RADIUS_DP.dp.toPx()
+            drawCircle(color = Color(0x33000000), radius = r, center = c)
+            drawCircle(color = Color(0xFF888888), radius = r, center = c, style = Stroke(width = 2.dp.toPx()))
         }
     }
+}
+
+/**
+ * Remove the points of every stroke that fall inside the eraser circle, splitting a
+ * stroke into the surviving runs. Returns the SAME list instance when nothing changed
+ * so callers can skip needless state updates.
+ */
+private fun eraseAt(
+    strokes: List<InkStroke>,
+    center: Offset,
+    radiusPx: Float,
+    w: Float,
+    h: Float,
+): List<InkStroke> {
+    if (w <= 0f || h <= 0f) return strokes
+    val r2 = radiusPx * radiusPx
+    var changed = false
+    val result = ArrayList<InkStroke>(strokes.size)
+    for (stroke in strokes) {
+        val pts = stroke.points
+        if (pts.isEmpty()) { result.add(stroke); continue }
+        var removedAny = false
+        val runs = ArrayList<ArrayList<InkPoint>>()
+        var cur = ArrayList<InkPoint>()
+        for (p in pts) {
+            val dx = p.x * w - center.x
+            val dy = p.y * h - center.y
+            if (dx * dx + dy * dy <= r2) {
+                removedAny = true
+                if (cur.size >= 2) runs.add(cur)
+                cur = ArrayList()
+            } else {
+                cur.add(p)
+            }
+        }
+        if (cur.size >= 2) runs.add(cur)
+        if (!removedAny) {
+            result.add(stroke)
+        } else {
+            changed = true
+            for (run in runs) result.add(stroke.copy(points = run))
+        }
+    }
+    return if (changed) result else strokes
 }
 
 private fun DrawScope.drawInkStroke(stroke: InkStroke, w: Float, h: Float) {
@@ -175,27 +255,6 @@ private fun DrawScope.drawSmoothPath(pts: List<Offset>, color: Color, widthPx: F
     )
 }
 
-private fun List<InkStroke>.indicesIntersecting(
-    eraser: List<Offset>,
-    w: Float,
-    h: Float,
-    radiusPx: Float,
-): Set<Int> {
-    val result = mutableSetOf<Int>()
-    forEachIndexed { idx, stroke ->
-        val pts = stroke.points.map { Offset(it.x * w, it.y * h) }
-        loop@ for (e in eraser) {
-            for (p in pts) {
-                if ((p - e).getDistance() <= radiusPx) {
-                    result.add(idx)
-                    break@loop
-                }
-            }
-        }
-    }
-    return result
-}
-
 /**
  * Paper note panel: icon-light toolbar + light paper surface with the ink canvas.
  * Strokes are owned by the caller so undo/redo and autosave reset per Player.
@@ -204,7 +263,7 @@ private fun List<InkStroke>.indicesIntersecting(
 fun NoteCanvasPanel(
     strokes: List<InkStroke>,
     onAddStroke: (InkStroke) -> Unit,
-    onEraseStrokes: (Set<Int>) -> Unit,
+    onErase: (List<InkStroke>) -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onClear: () -> Unit,
@@ -228,7 +287,7 @@ fun NoteCanvasPanel(
                 strokes = strokes,
                 tool = tool,
                 onAddStroke = onAddStroke,
-                onEraseStrokes = onEraseStrokes,
+                onErase = onErase,
                 modifier = Modifier.fillMaxSize(),
             )
         }

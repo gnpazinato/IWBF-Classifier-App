@@ -5,6 +5,7 @@ import com.iwbfclassifier.core.importer.ParsedTeam
 import com.iwbfclassifier.core.newId
 import com.iwbfclassifier.core.nowIso
 import com.iwbfclassifier.data.model.Competition
+import com.iwbfclassifier.data.model.Game
 import com.iwbfclassifier.data.model.MicInfo
 import com.iwbfclassifier.data.model.NotePage
 import com.iwbfclassifier.data.model.Player
@@ -192,6 +193,18 @@ class JsonCompetitionRepository(
             storage.writeText(storage.noteFile(competitionId, page.playerId), AppJson.encodeToString(page))
         }
 
+    // --- Game ---
+
+    override suspend fun loadGame(competitionId: String): Game? =
+        withContext(Dispatchers.IO) {
+            val f = storage.gameFile(competitionId)
+            if (f.exists()) runCatching { AppJson.decodeFromString<Game>(f.readText()) }.getOrNull() else null
+        }
+
+    override suspend fun saveGame(game: Game) = withContext(Dispatchers.IO) {
+        storage.writeText(storage.gameFile(game.competitionId), AppJson.encodeToString(game))
+    }
+
     // --- Import ---
 
     override suspend fun importRoster(competitionId: String, teams: List<ParsedTeam>): ImportResult =
@@ -218,6 +231,8 @@ class JsonCompetitionRepository(
                         iwbfId = pp.iwbfId?.ifBlank { null },
                         dateOfBirth = pp.dob?.ifBlank { null },
                         importedSportClass = pp.importedClass,
+                        // Seed the editable Initial Class from the sheet's initial_class.
+                        startingSportClass = pp.importedClass,
                         sportClassStatus = pp.scs,
                         mic = MicInfo(
                             healthCondition = pp.healthCondition?.ifBlank { null },

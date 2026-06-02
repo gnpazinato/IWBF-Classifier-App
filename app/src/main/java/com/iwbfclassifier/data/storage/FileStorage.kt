@@ -46,6 +46,10 @@ class FileStorage(private val root: File) {
     fun noteFile(competitionId: String, playerId: String): File =
         File(notesDir(competitionId), "$playerId.json")
 
+    /** Current game setup (selected teams + YouTube livestream) for a competition. */
+    fun gameFile(competitionId: String): File =
+        File(competitionDir(competitionId), "game.json")
+
     fun listCompetitionIds(): List<String> =
         competitionsDir.listFiles { f -> f.isDirectory }?.map { it.name }?.sorted() ?: emptyList()
 

@@ -20,13 +20,14 @@ object RosterParser {
         val lower = fileName.lowercase()
         return when {
             lower.endsWith(".zip") -> parseZip(fileName, bytes)
+            lower.endsWith(".csv") -> parseCsv(fileName, bytes)
             lower.endsWith(".docx") -> singleFileRoster(fileName) { parseDocx(fileName, bytes) }
-            lower.endsWith(".xlsx") -> singleFileRoster(fileName) { parseXlsx(fileName, bytes) }
+            lower.endsWith(".xlsx") -> rosterFromTeams(fileName, parseXlsxTeams(fileName, bytes))
             lower.endsWith(".pdf") -> parsePdf(fileName, bytes)
             else -> ParsedRoster(
                 filesFound = listOf(fileName),
                 filesFailed = listOf(fileName),
-                warnings = listOf("Unsupported file type: $fileName. Use ZIP, DOCX, XLSX or PDF."),
+                warnings = listOf("Unsupported file type: $fileName. Use the spreadsheet template (CSV/XLSX), ZIP, DOCX or PDF."),
             )
         }
     }
@@ -63,13 +64,14 @@ object RosterParser {
             while (entry != null) {
                 val name = entry.name.substringAfterLast('/')
                 val l = name.lowercase()
-                if (!entry.isDirectory && (l.endsWith(".docx") || l.endsWith(".xlsx") || l.endsWith(".pdf"))) {
+                if (!entry.isDirectory && (l.endsWith(".docx") || l.endsWith(".xlsx") || l.endsWith(".csv") || l.endsWith(".pdf"))) {
                     found += name
                     val entryBytes = zis.readBytes()
                     runCatching {
                         when {
                             l.endsWith(".docx") -> parseDocx(name, entryBytes)?.let { teams += it }
-                            l.endsWith(".xlsx") -> parseXlsx(name, entryBytes)?.let { teams += it }
+                            l.endsWith(".xlsx") -> teams += parseXlsxTeams(name, entryBytes)
+                            l.endsWith(".csv") -> teams += parseCsv(name, entryBytes).teams
                             l.endsWith(".pdf") -> {
                                 val text = extractPdfText(entryBytes)
                                 if (text.isNotBlank()) rawText[name] = text
@@ -108,22 +110,74 @@ object RosterParser {
         )
     }
 
-    // --- XLSX ---
+    // --- XLSX (one sheet; groups by the "team" column when present) ---
 
-    private fun parseXlsx(fileName: String, bytes: ByteArray): ParsedTeam? {
+    private fun parseXlsxTeams(fileName: String, bytes: ByteArray): List<ParsedTeam> {
         val sharedStrings = readZipEntry(bytes, "xl/sharedStrings.xml")?.let { parseSharedStrings(it) } ?: emptyList()
         // First worksheet (sheet1.xml by convention).
         val sheetXml = readZipEntry(bytes, "xl/worksheets/sheet1.xml")
             ?: readFirstZipEntryMatching(bytes) { it.startsWith("xl/worksheets/") && it.endsWith(".xml") }
-            ?: return null
+            ?: return emptyList()
         val rows = parseSheetRows(sheetXml, sharedStrings)
-        val players = playersFromTable(rows, fileName)
-        return ParsedTeam(
-            name = teamNameFromFile(fileName),
-            code = teamCodeFromFile(fileName),
-            sourceFile = fileName,
-            players = players,
-        )
+        return teamsFromTable(rows, fileName)
+    }
+
+    // --- CSV (the official single-sheet template; groups by the "team" column) ---
+
+    private fun parseCsv(fileName: String, bytes: ByteArray): ParsedRoster {
+        val table = parseCsvTable(bytes)
+        return rosterFromTeams(fileName, teamsFromTable(table, fileName))
+    }
+
+    private fun parseCsvTable(bytes: ByteArray): List<List<String>> {
+        val text = String(bytes, Charsets.UTF_8).removePrefix("﻿")
+        val lines = text.split(Regex("\r\n|\n|\r")).filter { it.isNotBlank() }
+        if (lines.isEmpty()) return emptyList()
+        // Excel exports in some locales use ';' — pick whichever the header uses more.
+        val header = lines.first()
+        val delimiter = if (header.count { it == ';' } > header.count { it == ',' }) ';' else ','
+        return lines.map { parseCsvLine(it, delimiter) }
+    }
+
+    private fun parseCsvLine(line: String, delimiter: Char): List<String> {
+        val out = ArrayList<String>()
+        val sb = StringBuilder()
+        var inQuotes = false
+        var i = 0
+        while (i < line.length) {
+            val c = line[i]
+            if (inQuotes) {
+                if (c == '"') {
+                    if (i + 1 < line.length && line[i + 1] == '"') { sb.append('"'); i++ } else inQuotes = false
+                } else {
+                    sb.append(c)
+                }
+            } else {
+                when (c) {
+                    '"' -> inQuotes = true
+                    delimiter -> { out.add(sb.toString()); sb.setLength(0) }
+                    else -> sb.append(c)
+                }
+            }
+            i++
+        }
+        out.add(sb.toString())
+        return out.map { it.trim() }
+    }
+
+    private fun rosterFromTeams(fileName: String, teams: List<ParsedTeam>): ParsedRoster {
+        if (teams.isEmpty()) {
+            return ParsedRoster(
+                filesFound = listOf(fileName),
+                filesFailed = listOf(fileName),
+                warnings = listOf(
+                    "No players detected in $fileName. Use the template columns: " +
+                        "team, number, initial_class, class_status, full_name.",
+                ),
+            )
+        }
+        val warnings = teams.filter { it.players.isEmpty() }.map { "No players detected for ${it.name}." }
+        return ParsedRoster(teams = teams, filesFound = listOf(fileName), warnings = warnings)
     }
 
     // --- PDF (best effort: raw text only) ---
@@ -143,6 +197,7 @@ object RosterParser {
     // === Column mapping / player extraction (shared by DOCX + XLSX) ===
 
     private data class ColMap(
+        val team: Int?,
         val number: Int?,
         val name: Int?,
         val klass: Int?,
@@ -160,15 +215,21 @@ object RosterParser {
         fun find(vararg keys: String): Int? =
             lc.indexOfFirst { cell -> keys.any { cell.contains(it) } }.takeIf { it >= 0 }
 
-        val name = find("player", "family name", "given", "name")
+        val name = find("full_name", "player", "family name", "given", "name")
         // Require at least a name-like column to treat this as a player header.
         if (name == null) return null
 
+        // "class_status" contains "status"; the bare class column is found first by "class".
+        val status = find("class_status", "scs", "status")
+        val klass = lc.indexOfFirst { it.contains("class") && it != lc.getOrNull(status ?: -1) }
+            .takeIf { it >= 0 } ?: find("initial_class", "class")
+
         return ColMap(
+            team = find("team"),
             number = find("uniform", "number", "#", "no."),
             name = name,
-            klass = find("class"),
-            scs = find("scs", "status"),
+            klass = klass,
+            scs = status,
             iwbfId = find("iwbf", "id"),
             dob = find("dd/mm", "date", "birth", "dob"),
             health = find("health"),
@@ -211,6 +272,64 @@ object RosterParser {
         }
         return players
     }
+
+    /**
+     * Like [playersFromTable] but for single-sheet sources (template CSV/XLSX): when a
+     * "team" column is present, players are grouped into one [ParsedTeam] per team value
+     * (file order preserved); otherwise the whole sheet is one team named after the file.
+     */
+    private fun teamsFromTable(table: List<List<String>>, sourceFile: String): List<ParsedTeam> {
+        if (table.isEmpty()) return emptyList()
+        val headerIdx = table.indexOfFirst { mapColumns(it) != null }
+        if (headerIdx < 0) return emptyList()
+        val cols = mapColumns(table[headerIdx]) ?: return emptyList()
+
+        val tagged = ArrayList<Pair<String?, ParsedPlayer>>()
+        for (i in (headerIdx + 1) until table.size) {
+            val row = table[i]
+            fun cell(idx: Int?): String? = idx?.let { row.getOrNull(it) }?.trim()?.ifBlank { null }
+            val name = cell(cols.name)
+            val number = cell(cols.number)?.let { Regex("""\d+""").find(it)?.value }
+            if (name == null && number == null) continue
+            if (name != null && mapColumns(row) != null && name.lowercase().contains("player")) continue
+            tagged += cell(cols.team) to ParsedPlayer(
+                number = number,
+                name = name,
+                importedClass = SportClass.fromCode(cell(cols.klass)),
+                scs = SportClassStatus.fromCode(cell(cols.scs)),
+                iwbfId = cell(cols.iwbfId),
+                dob = cell(cols.dob),
+                healthCondition = cell(cols.health),
+                impairment = cell(cols.impairment),
+                notes = cell(cols.notes),
+                panel = cell(cols.panel),
+                sourceFile = sourceFile,
+            )
+        }
+        if (tagged.isEmpty()) return emptyList()
+
+        return if (cols.team != null && tagged.any { it.first != null }) {
+            val grouped = LinkedHashMap<String, MutableList<ParsedPlayer>>()
+            for ((teamVal, player) in tagged) {
+                grouped.getOrPut(teamVal ?: "Unassigned") { mutableListOf() }.add(player)
+            }
+            grouped.map { (teamName, teamPlayers) ->
+                ParsedTeam(name = teamName, code = teamCodeFromName(teamName), sourceFile = sourceFile, players = teamPlayers)
+            }
+        } else {
+            listOf(
+                ParsedTeam(
+                    name = teamNameFromFile(sourceFile),
+                    code = teamCodeFromFile(sourceFile),
+                    sourceFile = sourceFile,
+                    players = tagged.map { it.second },
+                ),
+            )
+        }
+    }
+
+    private fun teamCodeFromName(name: String): String? =
+        name.split(Regex("""\s+""")).firstOrNull()?.trim()?.ifBlank { null }
 
     // === MIC merge ===
 

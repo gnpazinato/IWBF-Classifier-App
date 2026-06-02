@@ -3,6 +3,7 @@ package com.iwbfclassifier.data.repository
 import com.iwbfclassifier.core.importer.ImportResult
 import com.iwbfclassifier.core.importer.ParsedTeam
 import com.iwbfclassifier.data.model.Competition
+import com.iwbfclassifier.data.model.Game
 import com.iwbfclassifier.data.model.NotePage
 import com.iwbfclassifier.data.model.Player
 import com.iwbfclassifier.data.model.Team
@@ -42,6 +43,13 @@ interface CompetitionRepository {
     /** Handwritten notes per Player (loaded on demand, not held in memory). */
     suspend fun loadNotePage(competitionId: String, playerId: String): NotePage
     suspend fun saveNotePage(competitionId: String, page: NotePage)
+
+    /**
+     * Current game setup for a competition — which two teams are playing and the
+     * optional YouTube livestream. One game at a time; observing reads this.
+     */
+    suspend fun loadGame(competitionId: String): Game?
+    suspend fun saveGame(game: Game)
 
     /**
      * Bulk-create teams and players from a parsed import, returning (teams, players)

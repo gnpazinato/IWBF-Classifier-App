@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -15,6 +16,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -33,8 +36,12 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.iwbfclassifier.core.extractYoutubeId
+import com.iwbfclassifier.core.newId
 import com.iwbfclassifier.data.model.Competition
+import com.iwbfclassifier.data.model.Game
 import com.iwbfclassifier.data.model.Team
+import com.iwbfclassifier.data.model.YoutubeInfo
 import com.iwbfclassifier.data.repository.CompetitionRepository
 import com.iwbfclassifier.ui.LocalAppContainer
 import com.iwbfclassifier.ui.components.AppTextField
@@ -50,7 +57,9 @@ import com.iwbfclassifier.ui.theme.AppColors
 import com.iwbfclassifier.ui.theme.AppShapes
 import com.iwbfclassifier.ui.theme.AppSpacing
 import com.iwbfclassifier.ui.theme.AppTypography
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -84,8 +93,31 @@ class CompetitionDetailViewModel(
             repo.players.value.filter { it.competitionId == competitionId },
         )
 
+    private val _game = MutableStateFlow<Game?>(null)
+    val game = _game.asStateFlow()
+
+    init {
+        viewModelScope.launch { _game.value = repo.loadGame(competitionId) }
+    }
+
     fun addTeam(name: String, code: String?, gender: String?) {
         viewModelScope.launch { repo.createTeam(competitionId, name, code, gender) }
+    }
+
+    /** Persist the chosen matchup + livestream, then open observation. */
+    fun startGame(teamAId: String, teamBId: String, youtubeUrl: String?, onReady: () -> Unit) {
+        viewModelScope.launch {
+            val existing = repo.loadGame(competitionId)
+            val url = youtubeUrl?.trim()?.ifBlank { null }
+            val game = (existing ?: Game(id = newId(), competitionId = competitionId, name = "Game")).copy(
+                teamAId = teamAId,
+                teamBId = teamBId,
+                youtube = YoutubeInfo(enabled = url != null, url = url, videoId = extractYoutubeId(url)),
+            )
+            repo.saveGame(game)
+            _game.value = game
+            onReady()
+        }
     }
 
     fun setTeamActive(teamId: String, active: Boolean) {
@@ -115,6 +147,7 @@ fun CompetitionDetailScreen(
     onOpenTeam: (String) -> Unit,
     onOpenObservation: () -> Unit,
     onOpenImport: () -> Unit,
+    onOpenOverview: () -> Unit,
 ) {
     val container = LocalAppContainer.current
     val vm: CompetitionDetailViewModel = viewModel(
@@ -125,9 +158,11 @@ fun CompetitionDetailScreen(
     val competition by vm.competition.collectAsStateWithLifecycle()
     val teams by vm.teams.collectAsStateWithLifecycle()
     val players by vm.players.collectAsStateWithLifecycle()
+    val game by vm.game.collectAsStateWithLifecycle()
 
     var showAddTeam by remember { mutableStateOf(false) }
     var showEdit by remember { mutableStateOf(false) }
+    var showGameSetup by remember { mutableStateOf(false) }
 
     val activeTeams = teams.filter { it.active }
     val archivedTeams = teams.filter { !it.active }
@@ -151,13 +186,20 @@ fun CompetitionDetailScreen(
             item {
                 PrimaryButton(
                     "Open Observation",
-                    onClick = onOpenObservation,
+                    onClick = { showGameSetup = true },
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
             item {
                 SecondaryButton(
-                    "Import Roster Files (ZIP / Word / Excel / PDF)",
+                    "Players Overview (quick edit)",
+                    onClick = onOpenOverview,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            item {
+                SecondaryButton(
+                    "Import Roster (Spreadsheet Template / ZIP / Word / Excel / PDF)",
                     onClick = onOpenImport,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -199,6 +241,20 @@ fun CompetitionDetailScreen(
                 }
             }
         }
+    }
+
+    if (showGameSetup) {
+        GameSetupDialog(
+            teams = activeTeams,
+            initialTeamAId = game?.teamAId,
+            initialTeamBId = game?.teamBId,
+            initialYoutubeUrl = game?.youtube?.url,
+            onDismiss = { showGameSetup = false },
+            onStart = { aId, bId, url ->
+                showGameSetup = false
+                vm.startGame(aId, bId, url) { onOpenObservation() }
+            },
+        )
     }
 
     if (showAddTeam) {
@@ -255,6 +311,84 @@ private fun TeamRow(
         }
         if (onArchive != null) TextButton(onClick = onArchive) { Text("Archive", color = AppColors.TextSecondary) }
         if (onRestore != null) TextButton(onClick = onRestore) { Text("Restore", color = AppColors.Gold) }
+    }
+}
+
+@Composable
+private fun GameSetupDialog(
+    teams: List<Team>,
+    initialTeamAId: String?,
+    initialTeamBId: String?,
+    initialYoutubeUrl: String?,
+    onDismiss: () -> Unit,
+    onStart: (teamAId: String, teamBId: String, youtubeUrl: String?) -> Unit,
+) {
+    var teamAId by remember { mutableStateOf(initialTeamAId ?: teams.getOrNull(0)?.id) }
+    var teamBId by remember { mutableStateOf(initialTeamBId ?: teams.getOrNull(1)?.id) }
+    var youtube by remember { mutableStateOf(initialYoutubeUrl.orEmpty()) }
+    val canStart = teamAId != null && teamBId != null && teamAId != teamBId
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = AppColors.CardCharcoal,
+        title = { Text("Set up game", color = AppColors.TextPrimary) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.md)) {
+                if (teams.size < 2) {
+                    Text(
+                        "Add at least two teams (or import a roster) before observing.",
+                        style = AppTypography.body,
+                        color = AppColors.TextMuted,
+                    )
+                } else {
+                    Text(
+                        "Choose the two teams playing this game.",
+                        style = AppTypography.body,
+                        color = AppColors.TextSecondary,
+                    )
+                    TeamPicker("Team A", teams, teamAId) { teamAId = it }
+                    TeamPicker("Team B", teams, teamBId) { teamBId = it }
+                    if (teamAId != null && teamAId == teamBId) {
+                        Text("Pick two different teams.", style = AppTypography.microLabel, color = AppColors.AlertRed)
+                    }
+                    AppTextField(youtube, { youtube = it }, "YouTube livestream link (optional)", placeholder = "https://youtu.be/…")
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = canStart, onClick = { onStart(teamAId!!, teamBId!!, youtube.ifBlank { null }) }) {
+                Text("Start", color = if (canStart) AppColors.Gold else AppColors.TextMuted)
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = AppColors.TextSecondary) } },
+    )
+}
+
+@Composable
+private fun TeamPicker(label: String, teams: List<Team>, selectedId: String?, onSelect: (String) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedName = teams.firstOrNull { it.id == selectedId }?.name ?: "Select team"
+    Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.xs)) {
+        SectionLabel(label)
+        Box {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(AppShapes.button)
+                    .border(1.dp, AppColors.DividerGray, AppShapes.button)
+                    .clickable { expanded = true }
+                    .padding(AppSpacing.md),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(selectedName, style = AppTypography.body, color = AppColors.TextPrimary, modifier = Modifier.weight(1f))
+                Text("▾", style = AppTypography.body, color = AppColors.TextSecondary)
+            }
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                teams.forEach { t ->
+                    DropdownMenuItem(text = { Text(t.name) }, onClick = { onSelect(t.id); expanded = false })
+                }
+            }
+        }
     }
 }
 

@@ -153,34 +153,20 @@ fun PlayerEditScreen(playerId: String, onBack: () -> Unit) {
             SectionLabel("Player Identity")
             AppTextField(draft.uniformNumber.orEmpty(), { v -> edit { it.copy(uniformNumber = v.ifBlank { null }) } }, "Uniform Number", keyboardType = KeyboardType.Number)
             AppTextField(draft.name.orEmpty(), { v -> edit { it.copy(name = v.ifBlank { null }) } }, "Player Name")
-            AppTextField(draft.iwbfId.orEmpty(), { v -> edit { it.copy(iwbfId = v.ifBlank { null }) } }, "IWBF ID")
-            AppTextField(draft.dateOfBirth.orEmpty(), { v -> edit { it.copy(dateOfBirth = v.ifBlank { null }) } }, "Date of Birth")
 
-            // Imported reference
-            ClassField(
-                label = "Imported Sport Class",
-                value = draft.importedSportClass,
-                onSelect = { sc -> edit { it.copy(importedSportClass = sc) } },
-            )
+            // Class status from the entry sheet
             StatusField(
                 value = draft.sportClassStatus,
                 onSelect = { status -> edit { it.copy(sportClassStatus = status) } },
             )
 
             // Decision fields (docs/02)
-            ClassField("Starting Sport Class", draft.startingSportClass) { sc -> edit { it.copy(startingSportClass = sc) } }
-            ClassField("My Opinion", draft.myOpinionSportClass) { sc -> edit { it.copy(myOpinionSportClass = sc) } }
-            ClassField("Final Sport Class", draft.finalSportClass) { sc -> edit { it.copy(finalSportClass = sc) } }
+            ClassField("Initial Class", draft.startingSportClass) { sc -> edit { it.copy(startingSportClass = sc) } }
+            ClassField("My Opinion Class", draft.myOpinionSportClass) { sc -> edit { it.copy(myOpinionSportClass = sc) } }
+            ClassField("Final Class", draft.finalSportClass) { sc -> edit { it.copy(finalSportClass = sc) } }
 
             // Observation status
             ObservationStatusField(draft.observationStatus) { status -> edit { it.copy(observationStatus = status) } }
-
-            // MIC
-            SectionLabel("MIC")
-            AppTextField(draft.mic.healthCondition.orEmpty(), { v -> edit { it.copy(mic = it.mic.copy(healthCondition = v.ifBlank { null })) } }, "Health Condition")
-            AppTextField(draft.mic.impairment.orEmpty(), { v -> edit { it.copy(mic = it.mic.copy(impairment = v.ifBlank { null })) } }, "Impairment")
-            AppTextField(draft.mic.notes.orEmpty(), { v -> edit { it.copy(mic = it.mic.copy(notes = v.ifBlank { null })) } }, "MIC Notes", singleLine = false)
-            AppTextField(draft.mic.panel.orEmpty(), { v -> edit { it.copy(mic = it.mic.copy(panel = v.ifBlank { null })) } }, "Panel")
 
             // Video evidence (YouTube links + timestamps)
             VideoEvidenceSection(

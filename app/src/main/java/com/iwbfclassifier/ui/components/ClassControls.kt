@@ -28,7 +28,7 @@ import com.iwbfclassifier.ui.theme.AppTypography
 
 /** Which decision field the class buttons currently edit (docs/02). */
 enum class ClassTarget(val label: String) {
-    Starting("Starting"),
+    Starting("Initial"),
     MyOpinion("My Opinion"),
     Final("Final"),
 }

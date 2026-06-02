@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -54,9 +55,24 @@ private val IMPORT_MIME_TYPES = arrayOf(
     "application/x-zip-compressed",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // .xlsx
+    "text/csv",
+    "text/comma-separated-values",
     "application/pdf",
     "application/octet-stream",
 )
+
+/**
+ * Official single-sheet roster template (user request). Filling this in and importing
+ * it gives a clean roster — no coaching staff, no misread jersey numbers. Columns are
+ * matched by header name, so order can change and extra example rows can be deleted.
+ */
+private const val TEMPLATE_FILE_NAME = "iwbf_roster_template.csv"
+private const val TEMPLATE_CSV =
+    "team,number,initial_class,class_status,full_name\n" +
+        "Argentina,4,1.0,C,\"VINCI, Sarah\"\n" +
+        "Argentina,7,3.5,N,\"GOMEZ, Maria\"\n" +
+        "Australia,5,2.0,R,\"SMITH, Jane\"\n" +
+        "Australia,11,4.0,C,\"BROWN, Emily\"\n"
 
 /**
  * Roster import: pick a ZIP/Word/Excel/PDF, review what was detected, then create
@@ -80,6 +96,17 @@ fun ImportScreen(
     var excluded by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var competitionName by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
+
+    val templateSaver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    context.contentResolver.openOutputStream(uri)?.use { it.write(TEMPLATE_CSV.toByteArray()) }
+                }
+            }.onFailure { error = it.message ?: "Could not save the template." }
+        }
+    }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -112,7 +139,11 @@ fun ImportScreen(
         val current = roster
         when {
             parsing -> CenterMessage("Reading file…")
-            current == null -> PickPrompt(error) { picker.launch(IMPORT_MIME_TYPES) }
+            current == null -> PickPrompt(
+                error = error,
+                onDownloadTemplate = { templateSaver.launch(TEMPLATE_FILE_NAME) },
+                onPick = { picker.launch(IMPORT_MIME_TYPES) },
+            )
             else -> ReviewContent(
                 roster = current,
                 excluded = excluded,
@@ -144,7 +175,7 @@ fun ImportScreen(
 }
 
 @Composable
-private fun PickPrompt(error: String?, onPick: () -> Unit) {
+private fun PickPrompt(error: String?, onDownloadTemplate: () -> Unit, onPick: () -> Unit) {
     Column(
         Modifier.fillMaxSize().padding(AppSpacing.xl),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -152,12 +183,16 @@ private fun PickPrompt(error: String?, onPick: () -> Unit) {
     ) {
         EmptyState(
             "Import a roster",
-            "Choose a file from your classification chief: a ZIP of Word fiches, a Word (.docx) or Excel (.xlsx) entry list, or a PDF.",
+            "Best results: download the spreadsheet template, fill one row per athlete " +
+                "(team, number, initial_class, class_status, full_name) and import it back. " +
+                "You can also import a ZIP/Word/Excel/PDF, but unstandardised files may misread numbers or pull staff.",
         )
-        Spacer(Modifier.width(AppSpacing.md))
-        PrimaryButton("Choose File", onClick = onPick)
+        Spacer(Modifier.height(AppSpacing.md))
+        SecondaryButton("Download Template (.csv)", onClick = onDownloadTemplate, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(AppSpacing.md))
+        PrimaryButton("Choose File", onClick = onPick, modifier = Modifier.fillMaxWidth())
         if (error != null) {
-            Spacer(Modifier.width(AppSpacing.md))
+            Spacer(Modifier.height(AppSpacing.md))
             Text(error, style = AppTypography.body, color = AppColors.AlertRed)
         }
     }

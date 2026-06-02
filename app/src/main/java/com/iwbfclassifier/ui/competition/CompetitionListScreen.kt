@@ -31,13 +31,16 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.iwbfclassifier.core.isoToDisplayDate
 import com.iwbfclassifier.data.model.Competition
 import com.iwbfclassifier.data.repository.CompetitionRepository
 import com.iwbfclassifier.ui.LocalAppContainer
 import com.iwbfclassifier.ui.components.AppTextField
 import com.iwbfclassifier.ui.components.AppTopBar
+import com.iwbfclassifier.ui.components.DateField
 import com.iwbfclassifier.ui.components.EmptyState
 import com.iwbfclassifier.ui.components.PrimaryButton
+import com.iwbfclassifier.ui.components.SecondaryButton
 import com.iwbfclassifier.ui.theme.AppColors
 import com.iwbfclassifier.ui.theme.AppShapes
 import com.iwbfclassifier.ui.theme.AppSpacing
@@ -55,7 +58,10 @@ class CompetitionListViewModel(private val repo: CompetitionRepository) : ViewMo
 }
 
 @Composable
-fun CompetitionListScreen(onOpenCompetition: (String) -> Unit) {
+fun CompetitionListScreen(
+    onOpenCompetition: (String) -> Unit,
+    onImport: () -> Unit,
+) {
     val container = LocalAppContainer.current
     val vm: CompetitionListViewModel = viewModel(
         factory = viewModelFactory { initializer { CompetitionListViewModel(container.competitionRepository) } },
@@ -69,15 +75,33 @@ fun CompetitionListScreen(onOpenCompetition: (String) -> Unit) {
         AppTopBar(
             title = "IWBF Classifier App",
             subtitle = "Wheelchair Basketball Observation",
-            actions = {
-                PrimaryButton("New", onClick = { showCreate = true })
-                Spacer(Modifier.width(AppSpacing.sm))
-            },
         )
+
+        // Two primary entry points, always on the home screen (user request).
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = AppSpacing.lg, vertical = AppSpacing.md),
+            horizontalArrangement = Arrangement.spacedBy(AppSpacing.md),
+        ) {
+            HomeActionCard(
+                title = "New Competition",
+                subtitle = "Start an empty competition and add teams/players.",
+                primary = true,
+                onClick = { showCreate = true },
+                modifier = Modifier.weight(1f),
+            )
+            HomeActionCard(
+                title = "Import Roster Files",
+                subtitle = "Upload a ZIP, Word, Excel or PDF from the classification chief.",
+                primary = false,
+                onClick = onImport,
+                modifier = Modifier.weight(1f),
+            )
+        }
+
         if (competitions.isEmpty()) {
             EmptyState(
                 "No competitions yet",
-                "Create a competition to start building a roster or importing entry lists.",
+                "Create a competition or import entry lists to get started.",
             )
         } else {
             LazyColumn(
@@ -109,6 +133,36 @@ fun CompetitionListScreen(onOpenCompetition: (String) -> Unit) {
 }
 
 @Composable
+private fun HomeActionCard(
+    title: String,
+    subtitle: String,
+    primary: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier
+            .clip(AppShapes.card)
+            .background(if (primary) AppColors.Gold else AppColors.CardCharcoal)
+            .border(1.dp, if (primary) AppColors.Gold else AppColors.GoldBorder, AppShapes.card)
+            .clickable(onClick = onClick)
+            .padding(AppSpacing.lg),
+        verticalArrangement = Arrangement.spacedBy(AppSpacing.xs),
+    ) {
+        Text(
+            title,
+            style = AppTypography.header,
+            color = if (primary) AppColors.InkBlack else AppColors.TextPrimary,
+        )
+        Text(
+            subtitle,
+            style = AppTypography.body,
+            color = if (primary) AppColors.InkBlack else AppColors.TextSecondary,
+        )
+    }
+}
+
+@Composable
 private fun CompetitionCard(
     competition: Competition,
     teamCount: Int,
@@ -132,7 +186,10 @@ private fun CompetitionCard(
         Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.md)) {
             Text("$teamCount Teams", style = AppTypography.microLabel, color = AppColors.Gold)
             Text("$playerCount Players", style = AppTypography.microLabel, color = AppColors.Gold)
-            val dates = listOfNotNull(competition.startDate, competition.endDate).joinToString(" – ")
+            val dates = listOfNotNull(
+                isoToDisplayDate(competition.startDate),
+                isoToDisplayDate(competition.endDate),
+            ).joinToString(" – ")
             if (dates.isNotBlank()) {
                 Text(dates, style = AppTypography.microLabel, color = AppColors.TextMuted)
             }
@@ -156,7 +213,7 @@ private fun CreateCompetitionDialog(
             Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
                 AppTextField(name, { name = it }, "Name")
                 AppTextField(location, { location = it }, "Location (optional)")
-                AppTextField(startDate, { startDate = it }, "Start date — YYYY-MM-DD (optional)")
+                DateField("Start Date (optional)", startDate.ifBlank { null }, { startDate = it.orEmpty() })
             }
         },
         confirmButton = {

@@ -1,9 +1,15 @@
+import com.android.build.api.variant.impl.VariantOutputImpl
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
 }
+
+// Bump on every adjustment; bump the major (first number) for significant changes.
+val appVersionName = "1.0.0"
+val appVersionCode = 2
 
 android {
     namespace = "com.iwbfclassifier"
@@ -13,11 +19,11 @@ android {
         applicationId = "com.iwbfclassifier"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        // Landscape-first, S Pen tablet target.
+        // S Pen tablet target; supports portrait + landscape.
     }
 
     buildTypes {
@@ -46,6 +52,16 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
+}
+
+// Name the generated APK iwbf-classifier-app-<version>.apk (per user request) instead
+// of the generic app-debug.apk / app-release.apk.
+androidComponents {
+    onVariants { variant ->
+        variant.outputs.forEach { output ->
+            (output as? VariantOutputImpl)?.outputFileName?.set("iwbf-classifier-app-$appVersionName.apk")
         }
     }
 }

@@ -40,6 +40,7 @@ import com.iwbfclassifier.ui.LocalAppContainer
 import com.iwbfclassifier.ui.components.AppTextField
 import com.iwbfclassifier.ui.components.AppTopBar
 import com.iwbfclassifier.ui.components.ConfirmDialog
+import com.iwbfclassifier.ui.components.DateField
 import com.iwbfclassifier.ui.components.DestructiveButton
 import com.iwbfclassifier.ui.components.EmptyState
 import com.iwbfclassifier.ui.components.PrimaryButton
@@ -113,6 +114,7 @@ fun CompetitionDetailScreen(
     onBack: () -> Unit,
     onOpenTeam: (String) -> Unit,
     onOpenObservation: () -> Unit,
+    onOpenImport: () -> Unit,
 ) {
     val container = LocalAppContainer.current
     val vm: CompetitionDetailViewModel = viewModel(
@@ -150,6 +152,13 @@ fun CompetitionDetailScreen(
                 PrimaryButton(
                     "Open Observation",
                     onClick = onOpenObservation,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            item {
+                SecondaryButton(
+                    "Import Roster Files (ZIP / Word / Excel / PDF)",
+                    onClick = onOpenImport,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -298,8 +307,8 @@ private fun EditCompetitionDialog(
             Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
                 AppTextField(name, { name = it }, "Name")
                 AppTextField(location, { location = it }, "Location")
-                AppTextField(startDate, { startDate = it }, "Start date — YYYY-MM-DD")
-                AppTextField(endDate, { endDate = it }, "End date — YYYY-MM-DD")
+                DateField("Start Date", startDate.ifBlank { null }, { startDate = it.orEmpty() })
+                DateField("End Date", endDate.ifBlank { null }, { endDate = it.orEmpty() })
                 Spacer(Modifier.width(AppSpacing.sm))
                 DestructiveButton("Delete Competition", onClick = { confirmDelete = true }, modifier = Modifier.fillMaxWidth())
             }

@@ -55,16 +55,16 @@ fun PlayerChip(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = 52.dp)
+            .heightIn(min = 46.dp)
             .clip(AppShapes.chip)
             .background(if (selected) AppColors.GoldSoft else AppColors.CardCharcoal)
             .border(if (selected) 1.5.dp else 1.dp, if (selected) AppColors.Gold else AppColors.DividerGray, AppShapes.chip)
             .clickable(onClick = onClick)
             .alpha(if (active) 1f else 0.45f)
-            .padding(vertical = AppSpacing.sm),
+            .padding(vertical = AppSpacing.xs),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.width(4.dp).height(36.dp).background(observationStatusColor(status)))
+        Box(Modifier.width(4.dp).height(32.dp).background(observationStatusColor(status)))
         Spacer(Modifier.width(AppSpacing.sm))
         Text(
             text = number?.let { "#$it" } ?: "#–",

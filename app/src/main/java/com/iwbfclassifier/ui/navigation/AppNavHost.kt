@@ -8,6 +8,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.iwbfclassifier.ui.competition.CompetitionDetailScreen
 import com.iwbfclassifier.ui.competition.CompetitionListScreen
+import com.iwbfclassifier.ui.imports.ImportScreen
 import com.iwbfclassifier.ui.observation.ObservationScreen
 import com.iwbfclassifier.ui.roster.PlayerEditScreen
 import com.iwbfclassifier.ui.roster.TeamRosterScreen
@@ -19,6 +20,29 @@ fun AppNavHost() {
         composable(Routes.CompetitionList) {
             CompetitionListScreen(
                 onOpenCompetition = { id -> nav.navigate(Routes.competitionDetail(id)) },
+                onImport = { nav.navigate(Routes.ImportNew) },
+            )
+        }
+        composable(Routes.ImportNew) {
+            ImportScreen(
+                competitionId = null,
+                onBack = { nav.popBackStack() },
+                onImported = { cid ->
+                    nav.navigate(Routes.competitionDetail(cid)) {
+                        popUpTo(Routes.CompetitionList) { inclusive = false }
+                    }
+                },
+            )
+        }
+        composable(
+            Routes.ImportInto,
+            arguments = listOf(navArgument(Routes.ARG_COMPETITION_ID) { type = NavType.StringType }),
+        ) { entry ->
+            val competitionId = entry.arguments?.getString(Routes.ARG_COMPETITION_ID).orEmpty()
+            ImportScreen(
+                competitionId = competitionId,
+                onBack = { nav.popBackStack() },
+                onImported = { nav.popBackStack() },
             )
         }
         composable(
@@ -31,6 +55,7 @@ fun AppNavHost() {
                 onBack = { nav.popBackStack() },
                 onOpenTeam = { teamId -> nav.navigate(Routes.teamRoster(competitionId, teamId)) },
                 onOpenObservation = { nav.navigate(Routes.observation(competitionId)) },
+                onOpenImport = { nav.navigate(Routes.importInto(competitionId)) },
             )
         }
         composable(

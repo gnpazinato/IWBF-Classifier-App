@@ -1,50 +1,55 @@
 package com.iwbfclassifier.ui.observation
 
+import android.content.res.Configuration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.iwbfclassifier.core.nowIso
+import com.iwbfclassifier.data.model.InkStroke
+import com.iwbfclassifier.data.model.NotePage
 import com.iwbfclassifier.data.model.Player
 import com.iwbfclassifier.data.model.SportClass
 import com.iwbfclassifier.data.model.Team
+import com.iwbfclassifier.data.model.VideoEvidence
 import com.iwbfclassifier.data.repository.CompetitionRepository
 import com.iwbfclassifier.ui.LocalAppContainer
 import com.iwbfclassifier.ui.components.ClassSelector
 import com.iwbfclassifier.ui.components.ClassTarget
 import com.iwbfclassifier.ui.components.EmptyState
+import com.iwbfclassifier.ui.components.NoteCanvasPanel
 import com.iwbfclassifier.ui.components.ObservationTopBar
-import com.iwbfclassifier.ui.components.PaperNoteCanvasContainer
 import com.iwbfclassifier.ui.components.PlayerChip
 import com.iwbfclassifier.ui.components.SecondaryButton
 import com.iwbfclassifier.ui.components.SectionLabel
+import com.iwbfclassifier.ui.components.VideoEvidenceSection
 import com.iwbfclassifier.ui.theme.AppColors
 import com.iwbfclassifier.ui.theme.AppSpacing
 import com.iwbfclassifier.ui.theme.AppTypography
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
@@ -79,6 +84,22 @@ class ObservationViewModel(
             _saving.value = false
         }
     }
+
+    suspend fun loadNotes(playerId: String): NotePage = repo.loadNotePage(competitionId, playerId)
+
+    fun saveNotes(playerId: String, strokes: List<InkStroke>) {
+        viewModelScope.launch {
+            _saving.value = true
+            repo.saveNotePage(competitionId, NotePage(playerId, strokes, nowIso()))
+            _saving.value = false
+        }
+    }
+
+    fun addVideo(player: Player, ev: VideoEvidence) =
+        save(player.copy(videoEvidence = player.videoEvidence + ev))
+
+    fun removeVideo(player: Player, ev: VideoEvidence) =
+        save(player.copy(videoEvidence = player.videoEvidence.filterNot { it.id == ev.id }))
 }
 
 @Composable
@@ -105,6 +126,38 @@ fun ObservationScreen(
     val teamA = teams.getOrNull(0)
     val teamB = teams.getOrNull(1)
 
+    // Handwritten notes, loaded per player and autosaved.
+    var strokes by remember(selectedPlayerId) { mutableStateOf(emptyList<InkStroke>()) }
+    var undone by remember(selectedPlayerId) { mutableStateOf(emptyList<InkStroke>()) }
+    var notesDirty by remember(selectedPlayerId) { mutableStateOf(false) }
+
+    LaunchedEffect(selectedPlayerId) {
+        val pid = selectedPlayerId
+        strokes = if (pid != null) vm.loadNotes(pid).strokes else emptyList()
+        undone = emptyList()
+        notesDirty = false
+    }
+    LaunchedEffect(selectedPlayerId, strokes, notesDirty) {
+        if (!notesDirty) return@LaunchedEffect
+        val pid = selectedPlayerId ?: return@LaunchedEffect
+        delay(400)
+        vm.saveNotes(pid, strokes)
+    }
+
+    fun selectPlayer(id: String) {
+        val current = selectedPlayerId
+        if (current != null && current != id && notesDirty) vm.saveNotes(current, strokes)
+        selectedPlayerId = id
+    }
+
+    val onAddStroke: (InkStroke) -> Unit = { s -> strokes = strokes + s; undone = emptyList(); notesDirty = true }
+    val onErase: (Set<Int>) -> Unit = { idxs -> strokes = strokes.filterIndexed { i, _ -> i !in idxs }; undone = emptyList(); notesDirty = true }
+    val onUndo: () -> Unit = { if (strokes.isNotEmpty()) { undone = undone + strokes.last(); strokes = strokes.dropLast(1); notesDirty = true } }
+    val onRedo: () -> Unit = { if (undone.isNotEmpty()) { strokes = strokes + undone.last(); undone = undone.dropLast(1); notesDirty = true } }
+    val onClear: () -> Unit = { if (strokes.isNotEmpty()) { undone = emptyList(); strokes = emptyList(); notesDirty = true } }
+
+    val portrait = LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
+
     Column(Modifier.fillMaxSize().background(AppColors.InkBlack)) {
         ObservationTopBar(
             competitionName = competition?.name ?: "Observation",
@@ -113,58 +166,109 @@ fun ObservationScreen(
             onBack = onBack,
         )
 
-        Row(Modifier.fillMaxSize()) {
-            PlayerRail(
-                team = teamA,
-                players = players,
-                selectedPlayerId = selectedPlayerId,
-                onSelect = { selectedPlayerId = it },
-                modifier = Modifier.weight(0.24f).fillMaxHeight(),
-            )
-
-            Column(
-                Modifier
-                    .weight(0.52f)
-                    .fillMaxHeight()
-                    .padding(AppSpacing.md),
-                verticalArrangement = Arrangement.spacedBy(AppSpacing.md),
-            ) {
-                if (selectedPlayer == null) {
-                    EmptyState("Select a player", "Tap a player chip to start observing.")
-                } else {
-                    PlayerHeader(player = selectedPlayer, onEditDetails = { onOpenPlayer(selectedPlayer.id) })
-                    ClassSelector(
-                        target = target,
-                        onTargetChange = { target = it },
-                        valueForTarget = when (target) {
-                            ClassTarget.Starting -> selectedPlayer.startingSportClass
-                            ClassTarget.MyOpinion -> selectedPlayer.myOpinionSportClass
-                            ClassTarget.Final -> selectedPlayer.finalSportClass
-                        },
-                        onSelectClass = { sportClass ->
-                            vm.save(applyClass(selectedPlayer, target, sportClass))
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                PaperNoteCanvasContainer(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            "S Pen note canvas — Phase 3",
-                            style = AppTypography.body,
-                            color = AppColors.TextMuted,
-                            textAlign = TextAlign.Center,
-                        )
-                    }
+        if (portrait) {
+            Column(Modifier.fillMaxSize()) {
+                ObservationWorkArea(
+                    player = selectedPlayer,
+                    target = target,
+                    onTargetChange = { target = it },
+                    onSelectClass = { sc -> selectedPlayer?.let { vm.save(applyClass(it, target, sc)) } },
+                    onOpenPlayer = onOpenPlayer,
+                    strokes = strokes,
+                    undone = undone,
+                    onAddStroke = onAddStroke,
+                    onErase = onErase,
+                    onUndo = onUndo,
+                    onRedo = onRedo,
+                    onClear = onClear,
+                    onAddVideo = { ev -> selectedPlayer?.let { vm.addVideo(it, ev) } },
+                    onRemoveVideo = { ev -> selectedPlayer?.let { vm.removeVideo(it, ev) } },
+                    modifier = Modifier.fillMaxWidth().weight(0.6f),
+                )
+                Row(Modifier.fillMaxWidth().weight(0.4f)) {
+                    PlayerRail(teamA, players, selectedPlayerId, ::selectPlayer, Modifier.weight(1f).fillMaxHeight())
+                    PlayerRail(teamB, players, selectedPlayerId, ::selectPlayer, Modifier.weight(1f).fillMaxHeight())
                 }
             }
+        } else {
+            Row(Modifier.fillMaxSize()) {
+                PlayerRail(teamA, players, selectedPlayerId, ::selectPlayer, Modifier.weight(0.24f).fillMaxHeight())
+                ObservationWorkArea(
+                    player = selectedPlayer,
+                    target = target,
+                    onTargetChange = { target = it },
+                    onSelectClass = { sc -> selectedPlayer?.let { vm.save(applyClass(it, target, sc)) } },
+                    onOpenPlayer = onOpenPlayer,
+                    strokes = strokes,
+                    undone = undone,
+                    onAddStroke = onAddStroke,
+                    onErase = onErase,
+                    onUndo = onUndo,
+                    onRedo = onRedo,
+                    onClear = onClear,
+                    onAddVideo = { ev -> selectedPlayer?.let { vm.addVideo(it, ev) } },
+                    onRemoveVideo = { ev -> selectedPlayer?.let { vm.removeVideo(it, ev) } },
+                    modifier = Modifier.weight(0.52f).fillMaxHeight(),
+                )
+                PlayerRail(teamB, players, selectedPlayerId, ::selectPlayer, Modifier.weight(0.24f).fillMaxHeight())
+            }
+        }
+    }
+}
 
-            PlayerRail(
-                team = teamB,
-                players = players,
-                selectedPlayerId = selectedPlayerId,
-                onSelect = { selectedPlayerId = it },
-                modifier = Modifier.weight(0.24f).fillMaxHeight(),
+@Composable
+private fun ObservationWorkArea(
+    player: Player?,
+    target: ClassTarget,
+    onTargetChange: (ClassTarget) -> Unit,
+    onSelectClass: (SportClass) -> Unit,
+    onOpenPlayer: (String) -> Unit,
+    strokes: List<InkStroke>,
+    undone: List<InkStroke>,
+    onAddStroke: (InkStroke) -> Unit,
+    onErase: (Set<Int>) -> Unit,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
+    onClear: () -> Unit,
+    onAddVideo: (VideoEvidence) -> Unit,
+    onRemoveVideo: (VideoEvidence) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier.padding(AppSpacing.md),
+        verticalArrangement = Arrangement.spacedBy(AppSpacing.md),
+    ) {
+        if (player == null) {
+            EmptyState("Select a player", "Tap a player chip to start observing.")
+        } else {
+            PlayerHeader(player = player, onEditDetails = { onOpenPlayer(player.id) })
+            ClassSelector(
+                target = target,
+                onTargetChange = onTargetChange,
+                valueForTarget = when (target) {
+                    ClassTarget.Starting -> player.startingSportClass
+                    ClassTarget.MyOpinion -> player.myOpinionSportClass
+                    ClassTarget.Final -> player.finalSportClass
+                },
+                onSelectClass = onSelectClass,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            VideoEvidenceSection(
+                evidence = player.videoEvidence,
+                onAdd = onAddVideo,
+                onRemove = onRemoveVideo,
+                compact = true,
+            )
+            NoteCanvasPanel(
+                strokes = strokes,
+                onAddStroke = onAddStroke,
+                onEraseStrokes = onErase,
+                onUndo = onUndo,
+                onRedo = onRedo,
+                onClear = onClear,
+                canUndo = strokes.isNotEmpty(),
+                canRedo = undone.isNotEmpty(),
+                modifier = Modifier.fillMaxWidth().weight(1f),
             )
         }
     }
@@ -196,11 +300,11 @@ private fun PlayerRail(
             verticalArrangement = Arrangement.spacedBy(AppSpacing.xs),
         ) {
             items(teamPlayers, key = { it.id }) { player ->
-                val sportClass = player.myOpinionSportClass ?: player.startingSportClass ?: player.importedSportClass
+                // Rails show number + name only; the class shows in the header above (user request).
                 PlayerChip(
                     number = player.uniformNumber,
                     name = player.name,
-                    classText = listOfNotNull(sportClass?.code, player.sportClassStatus?.code).joinToString(" ").ifBlank { null },
+                    classText = null,
                     status = player.observationStatus,
                     selected = player.id == selectedPlayerId,
                     onClick = { onSelect(player.id) },

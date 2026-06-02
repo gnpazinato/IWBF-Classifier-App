@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -49,6 +50,7 @@ import com.iwbfclassifier.ui.components.EmptyState
 import com.iwbfclassifier.ui.components.SaveIndicator
 import com.iwbfclassifier.ui.components.SecondaryButton
 import com.iwbfclassifier.ui.components.SectionLabel
+import com.iwbfclassifier.ui.components.VideoEvidenceSection
 import com.iwbfclassifier.ui.theme.AppColors
 import com.iwbfclassifier.ui.theme.AppShapes
 import com.iwbfclassifier.ui.theme.AppSpacing
@@ -143,6 +145,7 @@ fun PlayerEditScreen(playerId: String, onBack: () -> Unit) {
             Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
+                .imePadding()
                 .padding(AppSpacing.lg),
             verticalArrangement = Arrangement.spacedBy(AppSpacing.lg),
         ) {
@@ -178,6 +181,13 @@ fun PlayerEditScreen(playerId: String, onBack: () -> Unit) {
             AppTextField(draft.mic.impairment.orEmpty(), { v -> edit { it.copy(mic = it.mic.copy(impairment = v.ifBlank { null })) } }, "Impairment")
             AppTextField(draft.mic.notes.orEmpty(), { v -> edit { it.copy(mic = it.mic.copy(notes = v.ifBlank { null })) } }, "MIC Notes", singleLine = false)
             AppTextField(draft.mic.panel.orEmpty(), { v -> edit { it.copy(mic = it.mic.copy(panel = v.ifBlank { null })) } }, "Panel")
+
+            // Video evidence (YouTube links + timestamps)
+            VideoEvidenceSection(
+                evidence = draft.videoEvidence,
+                onAdd = { ev -> edit { it.copy(videoEvidence = it.videoEvidence + ev) } },
+                onRemove = { ev -> edit { it.copy(videoEvidence = it.videoEvidence.filterNot { x -> x.id == ev.id }) } },
+            )
 
             // Management (reversible remove + permanent delete)
             SectionLabel("Manage")

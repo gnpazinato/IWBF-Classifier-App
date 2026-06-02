@@ -1,9 +1,14 @@
 package com.iwbfclassifier.data.repository
 
+import com.iwbfclassifier.core.importer.ImportResult
+import com.iwbfclassifier.core.importer.ParsedTeam
 import com.iwbfclassifier.core.newId
 import com.iwbfclassifier.core.nowIso
 import com.iwbfclassifier.data.model.Competition
+import com.iwbfclassifier.data.model.MicInfo
+import com.iwbfclassifier.data.model.NotePage
 import com.iwbfclassifier.data.model.Player
+import com.iwbfclassifier.data.model.SourceInfo
 import com.iwbfclassifier.data.model.Team
 import com.iwbfclassifier.data.serialization.AppJson
 import com.iwbfclassifier.data.storage.FileStorage
@@ -168,6 +173,76 @@ class JsonCompetitionRepository(
         withContext(Dispatchers.IO) { storage.playerFile(player.competitionId, player.id).delete() }
         _players.value = _players.value.filterNot { it.id == playerId }
     }
+
+    // --- Notes ---
+
+    override suspend fun loadNotePage(competitionId: String, playerId: String): NotePage =
+        withContext(Dispatchers.IO) {
+            val f = storage.noteFile(competitionId, playerId)
+            if (f.exists()) {
+                runCatching { AppJson.decodeFromString<NotePage>(f.readText()) }.getOrNull()
+                    ?: NotePage(playerId)
+            } else {
+                NotePage(playerId)
+            }
+        }
+
+    override suspend fun saveNotePage(competitionId: String, page: NotePage) =
+        withContext(Dispatchers.IO) {
+            storage.writeText(storage.noteFile(competitionId, page.playerId), AppJson.encodeToString(page))
+        }
+
+    // --- Import ---
+
+    override suspend fun importRoster(competitionId: String, teams: List<ParsedTeam>): ImportResult =
+        mutex.withLock {
+            val now = nowIso()
+            val newTeams = mutableListOf<Team>()
+            val newPlayers = mutableListOf<Player>()
+            for (pt in teams) {
+                val team = Team(
+                    id = newId(),
+                    competitionId = competitionId,
+                    name = pt.name.ifBlank { "New Team" },
+                    code = pt.code?.ifBlank { null },
+                    source = SourceInfo(type = "import", fileName = pt.sourceFile),
+                )
+                newTeams += team
+                for (pp in pt.players) {
+                    newPlayers += Player(
+                        id = newId(),
+                        competitionId = competitionId,
+                        teamId = team.id,
+                        uniformNumber = pp.number?.ifBlank { null },
+                        name = pp.name?.ifBlank { null },
+                        iwbfId = pp.iwbfId?.ifBlank { null },
+                        dateOfBirth = pp.dob?.ifBlank { null },
+                        importedSportClass = pp.importedClass,
+                        sportClassStatus = pp.scs,
+                        mic = MicInfo(
+                            healthCondition = pp.healthCondition?.ifBlank { null },
+                            impairment = pp.impairment?.ifBlank { null },
+                            notes = pp.notes?.ifBlank { null },
+                            panel = pp.panel?.ifBlank { null },
+                        ),
+                        source = SourceInfo(type = "import", fileName = pp.sourceFile),
+                        createdAt = now,
+                        updatedAt = now,
+                    )
+                }
+            }
+            withContext(Dispatchers.IO) {
+                newTeams.forEach {
+                    storage.writeText(storage.teamFile(it.competitionId, it.id), AppJson.encodeToString(it))
+                }
+                newPlayers.forEach {
+                    storage.writeText(storage.playerFile(it.competitionId, it.id), AppJson.encodeToString(it))
+                }
+            }
+            _teams.value = _teams.value + newTeams
+            _players.value = _players.value + newPlayers
+            ImportResult(newTeams.size, newPlayers.size)
+        }
 
     // --- persistence helpers ---
 

@@ -1,6 +1,9 @@
 package com.iwbfclassifier.data.repository
 
+import com.iwbfclassifier.core.importer.ImportResult
+import com.iwbfclassifier.core.importer.ParsedTeam
 import com.iwbfclassifier.data.model.Competition
+import com.iwbfclassifier.data.model.NotePage
 import com.iwbfclassifier.data.model.Player
 import com.iwbfclassifier.data.model.Team
 import kotlinx.coroutines.flow.StateFlow
@@ -35,4 +38,14 @@ interface CompetitionRepository {
     suspend fun updatePlayer(player: Player)
     suspend fun setPlayerActive(playerId: String, active: Boolean)
     suspend fun deletePlayerPermanently(playerId: String)
+
+    /** Handwritten notes per Player (loaded on demand, not held in memory). */
+    suspend fun loadNotePage(competitionId: String, playerId: String): NotePage
+    suspend fun saveNotePage(competitionId: String, page: NotePage)
+
+    /**
+     * Bulk-create teams and players from a parsed import, returning (teams, players)
+     * created. All fields stay editable afterwards (docs/05).
+     */
+    suspend fun importRoster(competitionId: String, teams: List<ParsedTeam>): ImportResult
 }

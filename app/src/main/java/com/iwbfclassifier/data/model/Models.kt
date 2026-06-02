@@ -42,10 +42,22 @@ data class Player(
     val finalSportClass: SportClass? = null,
     val observationStatus: ObservationStatus = ObservationStatus.NotObserved,
     val mic: MicInfo = MicInfo(),
+    val videoEvidence: List<VideoEvidence> = emptyList(),
     val active: Boolean = true,
     val source: SourceInfo? = null,
     val createdAt: String,
     val updatedAt: String,
+)
+
+/** A YouTube moment (link + timestamp) attached to a Player's notes (docs/06). */
+@Serializable
+data class VideoEvidence(
+    val id: String,
+    val url: String,
+    val videoId: String? = null,
+    val startSeconds: Int? = null,
+    val label: String? = null,
+    val createdAt: String,
 )
 
 @Serializable

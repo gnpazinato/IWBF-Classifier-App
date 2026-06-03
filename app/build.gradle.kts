@@ -8,8 +8,8 @@ plugins {
 }
 
 // Bump on every adjustment; bump the major (first number) for significant changes.
-val appVersionName = "1.4.2"
-val appVersionCode = 8
+val appVersionName = "1.4.3"
+val appVersionCode = 9
 
 android {
     namespace = "com.iwbfclassifier"
@@ -72,6 +72,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.webkit)
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)

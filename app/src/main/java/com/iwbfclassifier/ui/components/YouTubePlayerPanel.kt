@@ -8,11 +8,14 @@ import android.view.View
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.webkit.WebViewAssetLoader
+import androidx.webkit.WebViewClientCompat
 
 /**
  * Controls an embedded YouTube IFrame player. The key capability for the classifier
@@ -134,10 +137,29 @@ fun YouTubePlayerPanel(
                     useWideViewPort = true
                 }
                 webChromeClient = WebChromeClient()
-                webViewClient = WebViewClient()
+                // Serve the player HTML from a REAL https origin (appassets.androidplatform.net)
+                // via WebViewAssetLoader. THIS is the fix for YouTube error 152/153: a page
+                // loaded with loadDataWithBaseURL does not send an HTTP Referer on its requests,
+                // and since mid-2025 YouTube refuses embeds that arrive without one. Serving the
+                // page from a real origin makes the WebView attach a valid Referer automatically.
+                val assetLoader = WebViewAssetLoader.Builder()
+                    .addPathHandler("/player/") { path ->
+                        if (path == "index.html") {
+                            WebResourceResponse("text/html", "utf-8", PLAYER_HTML.byteInputStream())
+                        } else {
+                            null
+                        }
+                    }
+                    .build()
+                webViewClient = object : WebViewClientCompat() {
+                    override fun shouldInterceptRequest(
+                        view: WebView,
+                        request: WebResourceRequest,
+                    ): WebResourceResponse? = assetLoader.shouldInterceptRequest(request.url)
+                }
                 addJavascriptInterface(YouTubeJsBridge(controller, ctx.applicationContext), "Android")
                 controller.webView = this
-                loadDataWithBaseURL("https://www.youtube.com", PLAYER_HTML, "text/html", "utf-8", null)
+                loadUrl("https://appassets.androidplatform.net/player/index.html")
             }
         },
         onRelease = { wv ->
@@ -152,9 +174,9 @@ private const val PLAYER_HTML = """
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<!-- YouTube (since mid-2025) rejects embeds that don't send a Referer identifying the
-     host, returning error 152/153 even for embeddable videos. Forcing the origin referrer
-     here makes the WebView send it (loadDataWithBaseURL otherwise often sends none). -->
+<!-- YouTube (since mid-2025) rejects embeds that don't send a Referer identifying the host,
+     returning error 152/153 even for embeddable videos. Belt-and-suspenders with the real
+     served origin: ensure the origin referrer is sent on the cross-origin player requests. -->
 <meta name="referrer" content="origin">
 <style>
   html,body{margin:0;padding:0;background:#000;height:100%;width:100%;overflow:hidden}
@@ -186,11 +208,11 @@ function onYouTubeIframeAPIReady() {
     // Privacy-enhanced host — more permissive for embeds and recommended for the 2025
     // referer change; the embedding page origin stays youtube.com (see playerVars).
     host: 'https://www.youtube-nocookie.com',
-    // enablejsapi + origin are REQUIRED for the IFrame API to work inside an Android
-    // WebView: origin must match the WebView base URL (https://www.youtube.com), otherwise
-    // YouTube refuses the embed and reports error 150/153 even for embeddable videos.
+    // enablejsapi + origin are REQUIRED inside a WebView. origin MUST match the page's real
+    // origin — now appassets.androidplatform.net (served via WebViewAssetLoader) — or the
+    // IFrame API's postMessage handshake (onReady / current time) silently fails.
     playerVars: { playsinline: 1, rel: 0, modestbranding: 1, controls: 1, fs: 1, autoplay: 1,
-                  enablejsapi: 1, origin: 'https://www.youtube.com' },
+                  enablejsapi: 1, origin: 'https://appassets.androidplatform.net' },
     events: {
       'onReady': function() { if (window.Android && Android.onReady) Android.onReady(); },
       'onStateChange': function(e) { if (e.data == 1 || e.data == 3) hideErr(); },

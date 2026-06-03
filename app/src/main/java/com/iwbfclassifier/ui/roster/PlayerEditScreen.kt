@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -43,7 +44,8 @@ import com.iwbfclassifier.data.repository.CompetitionRepository
 import com.iwbfclassifier.ui.LocalAppContainer
 import com.iwbfclassifier.ui.components.AppTextField
 import com.iwbfclassifier.ui.components.AppTopBar
-import com.iwbfclassifier.ui.components.ClassButtonRow
+import com.iwbfclassifier.ui.components.ClassDropdownCell
+import com.iwbfclassifier.ui.components.StatusDropdownCell
 import com.iwbfclassifier.ui.components.ConfirmDialog
 import com.iwbfclassifier.ui.components.DestructiveButton
 import com.iwbfclassifier.ui.components.EmptyState
@@ -154,16 +156,25 @@ fun PlayerEditScreen(playerId: String, onBack: () -> Unit) {
             AppTextField(draft.uniformNumber.orEmpty(), { v -> edit { it.copy(uniformNumber = v.ifBlank { null }) } }, "Uniform Number", keyboardType = KeyboardType.Number)
             AppTextField(draft.name.orEmpty(), { v -> edit { it.copy(name = v.ifBlank { null }) } }, "Player Name")
 
-            // Class status from the entry sheet
-            StatusField(
-                value = draft.sportClassStatus,
-                onSelect = { status -> edit { it.copy(sportClassStatus = status) } },
-            )
-
-            // Decision fields (docs/02)
-            ClassField("Initial Class", draft.startingSportClass) { sc -> edit { it.copy(startingSportClass = sc) } }
-            ClassField("My Opinion Class", draft.myOpinionSportClass) { sc -> edit { it.copy(myOpinionSportClass = sc) } }
-            ClassField("Final Class", draft.finalSportClass) { sc -> edit { it.copy(finalSportClass = sc) } }
+            // The athlete's single official Sport Class + Status (from import or manual entry).
+            // My Opinion and Final live only on the Observation screen (user request).
+            SectionLabel("Sport Class & Status")
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ClassDropdownCell(
+                    value = draft.startingSportClass,
+                    onSelect = { sc -> edit { it.copy(startingSportClass = sc) } },
+                    modifier = Modifier.weight(1f),
+                )
+                StatusDropdownCell(
+                    value = draft.sportClassStatus,
+                    onSelect = { st -> edit { it.copy(sportClassStatus = st) } },
+                    modifier = Modifier.weight(1.4f),
+                )
+            }
 
             // Observation status
             ObservationStatusField(draft.observationStatus) { status -> edit { it.copy(observationStatus = status) } }
@@ -196,31 +207,6 @@ fun PlayerEditScreen(playerId: String, onBack: () -> Unit) {
             onConfirm = { confirmDelete = false; vm.deletePermanently(onDone = onBack) },
             onDismiss = { confirmDelete = false },
         )
-    }
-}
-
-@Composable
-private fun ClassField(label: String, value: SportClass?, onSelect: (SportClass?) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
-        SectionLabel(label)
-        ClassButtonRow(selected = value, onSelect = { selected -> onSelect(if (selected == value) null else selected) })
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun StatusField(value: SportClassStatus?, onSelect: (SportClassStatus?) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
-        SectionLabel("Sport Class Status")
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm), verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
-            SportClassStatus.selectable.forEach { status ->
-                SelectableChip(
-                    text = status.code,
-                    selected = status == value,
-                    onClick = { onSelect(if (status == value) null else status) },
-                )
-            }
-        }
     }
 }
 

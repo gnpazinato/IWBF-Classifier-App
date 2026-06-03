@@ -2,6 +2,6 @@
 <resources>
     <color name="ink_black">#0E0E0E</color>
     <color name="gold">#A3975D</color>
-    <!-- Transparent launcher background (user request): only the ball shows. -->
-    <color name="ic_launcher_background">#00000000</color>
+    <!-- White launcher background (user request): basketball centered on white. -->
+    <color name="ic_launcher_background">#FFFFFFFF</color>
 </resources>

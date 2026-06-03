@@ -56,8 +56,8 @@ import com.iwbfclassifier.data.model.VideoEvidence
 import com.iwbfclassifier.data.model.displayName
 import com.iwbfclassifier.data.repository.CompetitionRepository
 import com.iwbfclassifier.ui.LocalAppContainer
-import com.iwbfclassifier.ui.components.ClassSelector
-import com.iwbfclassifier.ui.components.ClassTarget
+import com.iwbfclassifier.ui.components.CaptureMomentDialog
+import com.iwbfclassifier.ui.components.ClassStatusRow
 import com.iwbfclassifier.ui.components.EmptyState
 import com.iwbfclassifier.ui.components.KeyMomentsDialog
 import com.iwbfclassifier.ui.components.NoteCanvasPanel
@@ -151,8 +151,10 @@ fun ObservationScreen(
     val saving by vm.saving.collectAsStateWithLifecycle()
 
     var selectedPlayerId by remember { mutableStateOf<String?>(null) }
-    var target by remember { mutableStateOf(ClassTarget.MyOpinion) }
     var showMoments by remember { mutableStateOf(false) }
+    // Shown when "Add Moment" can't read the embedded player's time (e.g. the stream is
+    // embed-blocked and playing in the YouTube app) — the user types the time instead.
+    var showMomentTime by remember { mutableStateOf(false) }
 
     val selectedPlayer = players.firstOrNull { it.id == selectedPlayerId }
     // Teams come from the chosen game; fall back to the first two active teams.
@@ -201,28 +203,37 @@ fun ObservationScreen(
     val onRedo: () -> Unit = { if (undone.isNotEmpty()) { strokes = strokes + undone.last(); undone = undone.dropLast(1); notesDirty = true } }
     val onClear: () -> Unit = { if (strokes.isNotEmpty()) { undone = emptyList(); strokes = emptyList(); notesDirty = true } }
 
-    // One-tap moment: capture the player's current second and store a -5s/+5s, 0.5x window.
-    val onAddMoment: () -> Unit = onAdd@{
-        val player = selectedPlayer ?: return@onAdd
-        val vid = videoId ?: return@onAdd
-        val t = controller.currentSeconds().toInt()
-        val start = (t - 5).coerceAtLeast(0)
+    // Store a -5s/+5s, 0.5x slow-motion window centered on [center] for the selected player.
+    fun createMoment(center: Int, label: String? = null) {
+        val player = selectedPlayer ?: return
+        val vid = videoId ?: return
+        val start = (center - 5).coerceAtLeast(0)
         val original = game?.youtube?.url ?: "https://youtu.be/$vid"
         vm.addVideo(
             player,
             VideoEvidence(
                 id = newId(),
-                url = buildYoutubeUrl(vid, original, start),
+                url = buildYoutubeUrl(vid, original, center),
                 videoId = vid,
                 startSeconds = start,
-                endSeconds = t + 5,
+                endSeconds = center + 5,
                 playbackRate = 0.5,
-                label = "Moment @ ${formatSeconds(t) ?: "${t}s"}",
+                label = label?.ifBlank { null } ?: "Moment @ ${formatSeconds(center) ?: "${center}s"}",
                 createdAt = nowIso(),
             ),
         )
     }
+    // One tap captures the embedded player's current second. If that's 0 (the stream is
+    // playing outside the app, so we can't read its time), fall back to manual entry
+    // instead of silently saving a useless 0–5s clip.
+    val onAddMoment: () -> Unit = {
+        val t = controller.currentSeconds().toInt()
+        if (t > 0) createMoment(t) else showMomentTime = true
+    }
+    // Replay seeks the embedded player and plays the saved window. The moments dialog is
+    // dismissed first so the video (behind it) is actually visible during playback.
     val onReplay: (VideoEvidence) -> Unit = { ev ->
+        showMoments = false
         controller.playWindow(
             startSeconds = ev.startSeconds ?: 0,
             endSeconds = ev.endSeconds,
@@ -257,10 +268,7 @@ fun ObservationScreen(
                 Column(Modifier.fillMaxSize()) {
                     ObservationWorkArea(
                         player = selectedPlayer,
-                        target = target,
-                        onTargetChange = { target = it },
-                        onSelectClass = { sc -> selectedPlayer?.let { vm.save(applyClass(it, target, sc)) } },
-                        onSelectStatus = { st -> selectedPlayer?.let { vm.save(it.copy(sportClassStatus = st)) } },
+                        onUpdate = { updated -> vm.save(updated) },
                         onOpenPlayer = onOpenPlayer,
                         strokes = strokes,
                         undone = undone,
@@ -284,10 +292,7 @@ fun ObservationScreen(
                     PlayerRail(teamA, players, selectedPlayerId, ::selectPlayer, Modifier.weight(0.24f).fillMaxHeight())
                     ObservationWorkArea(
                         player = selectedPlayer,
-                        target = target,
-                        onTargetChange = { target = it },
-                        onSelectClass = { sc -> selectedPlayer?.let { vm.save(applyClass(it, target, sc)) } },
-                        onSelectStatus = { st -> selectedPlayer?.let { vm.save(it.copy(sportClassStatus = st)) } },
+                        onUpdate = { updated -> vm.save(updated) },
                         onOpenPlayer = onOpenPlayer,
                         strokes = strokes,
                         undone = undone,
@@ -315,6 +320,14 @@ fun ObservationScreen(
             onRemove = { ev -> vm.removeVideo(player, ev) },
             onAdd = { ev -> vm.addVideo(player, ev) },
             onDismiss = { showMoments = false },
+        )
+    }
+
+    if (showMomentTime && selectedPlayer != null && videoId != null) {
+        CaptureMomentDialog(
+            initialSeconds = controller.currentSeconds().toInt(),
+            onConfirm = { center, label -> createMoment(center, label); showMomentTime = false },
+            onDismiss = { showMomentTime = false },
         )
     }
 }
@@ -383,10 +396,7 @@ private fun SizeStepButton(label: String, onClick: () -> Unit) {
 @Composable
 private fun ObservationWorkArea(
     player: Player?,
-    target: ClassTarget,
-    onTargetChange: (ClassTarget) -> Unit,
-    onSelectClass: (SportClass) -> Unit,
-    onSelectStatus: (SportClassStatus?) -> Unit,
+    onUpdate: (Player) -> Unit,
     onOpenPlayer: (String) -> Unit,
     strokes: List<InkStroke>,
     undone: List<InkStroke>,
@@ -414,18 +424,7 @@ private fun ObservationWorkArea(
                 momentCount = momentCount,
                 onOpenMoments = onOpenMoments,
             )
-            ClassSelector(
-                target = target,
-                onTargetChange = onTargetChange,
-                valueForTarget = when (target) {
-                    ClassTarget.Starting -> player.startingSportClass
-                    ClassTarget.MyOpinion -> player.myOpinionSportClass
-                    ClassTarget.Final -> player.finalSportClass
-                },
-                onSelectClass = onSelectClass,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            StatusRow(value = player.sportClassStatus, onSelect = onSelectStatus)
+            ClassDecisionTable(player = player, onUpdate = onUpdate)
             NoteCanvasPanel(
                 strokes = strokes,
                 onAddStroke = onAddStroke,
@@ -441,36 +440,44 @@ private fun ObservationWorkArea(
     }
 }
 
+/**
+ * The three decision lines on one screen (user request): Initial, My Opinion, Final —
+ * each showing its Sport Class and Sport Class Status as dropdowns so everything is
+ * visible and editable at a glance. "Initial" edits the athlete's single official
+ * class + status (the same value shown on the roster preview and Edit Player); My Opinion
+ * and Final are observation-only working values.
+ */
 @Composable
-private fun StatusRow(value: SportClassStatus?, onSelect: (SportClassStatus?) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.xs)) {
-        SectionLabel("Class Status")
-        Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm), modifier = Modifier.fillMaxWidth()) {
-            SportClassStatus.selectable.forEach { st ->
-                val selected = st == value
-                Box(
-                    Modifier
-                        .weight(1f)
-                        .height(44.dp)
-                        .clip(AppShapes.button)
-                        .background(if (selected) AppColors.Gold else AppColors.CardCharcoal)
-                        .border(1.dp, if (selected) AppColors.Gold else AppColors.DividerGray, AppShapes.button)
-                        .clickable { onSelect(if (selected) null else st) },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(st.code, style = AppTypography.chip, color = if (selected) AppColors.InkBlack else AppColors.TextPrimary)
-                }
-            }
+private fun ClassDecisionTable(player: Player, onUpdate: (Player) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
+            Box(Modifier.weight(1.2f))
+            SectionLabel("Class", Modifier.weight(1f))
+            SectionLabel("Status", Modifier.weight(1.6f))
         }
+        ClassStatusRow(
+            label = "Initial",
+            sportClass = player.startingSportClass,
+            onSportClass = { onUpdate(player.copy(startingSportClass = it)) },
+            status = player.sportClassStatus,
+            onStatus = { onUpdate(player.copy(sportClassStatus = it)) },
+        )
+        ClassStatusRow(
+            label = "My Opinion",
+            sportClass = player.myOpinionSportClass,
+            onSportClass = { onUpdate(player.copy(myOpinionSportClass = it)) },
+            status = player.myOpinionSportClassStatus,
+            onStatus = { onUpdate(player.copy(myOpinionSportClassStatus = it)) },
+        )
+        ClassStatusRow(
+            label = "Final",
+            sportClass = player.finalSportClass,
+            onSportClass = { onUpdate(player.copy(finalSportClass = it)) },
+            status = player.finalSportClassStatus,
+            onStatus = { onUpdate(player.copy(finalSportClassStatus = it)) },
+        )
     }
 }
-
-private fun applyClass(player: Player, target: ClassTarget, sportClass: SportClass): Player =
-    when (target) {
-        ClassTarget.Starting -> player.copy(startingSportClass = sportClass)
-        ClassTarget.MyOpinion -> player.copy(myOpinionSportClass = sportClass)
-        ClassTarget.Final -> player.copy(finalSportClass = sportClass)
-    }
 
 @Composable
 private fun PlayerRail(
@@ -491,9 +498,8 @@ private fun PlayerRail(
             verticalArrangement = Arrangement.spacedBy(AppSpacing.xs),
         ) {
             items(teamPlayers, key = { it.id }) { player ->
-                // Chip shows number + full name + current class + class status (user request).
-                val current = player.finalSportClass ?: player.myOpinionSportClass
-                    ?: player.startingSportClass ?: player.importedSportClass
+                // Chip shows number + full name + the athlete's single official class + status.
+                val current = player.startingSportClass ?: player.importedSportClass
                 val classText = listOfNotNull(
                     current?.let { "Class ${it.code}" },
                     player.sportClassStatus?.code,
@@ -530,14 +536,6 @@ private fun PlayerHeader(
                 style = AppTypography.header,
                 color = AppColors.TextPrimary,
             )
-            val summary = buildList {
-                player.startingSportClass?.let { add("Initial ${it.code}") }
-                player.myOpinionSportClass?.let { add("Opinion ${it.code}") }
-                player.finalSportClass?.let { add("Final ${it.code}") }
-            }.joinToString("  ·  ")
-            if (summary.isNotBlank()) {
-                Text(summary, style = AppTypography.microLabel, color = AppColors.Gold)
-            }
         }
         if (showMoments) SecondaryButton("Moments ($momentCount)", onClick = onOpenMoments)
         SecondaryButton("Edit details", onClick = onEditDetails)

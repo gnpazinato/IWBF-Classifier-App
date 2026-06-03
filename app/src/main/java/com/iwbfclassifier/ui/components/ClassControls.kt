@@ -5,119 +5,106 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.iwbfclassifier.data.model.SportClass
+import com.iwbfclassifier.data.model.SportClassStatus
 import com.iwbfclassifier.ui.theme.AppColors
 import com.iwbfclassifier.ui.theme.AppShapes
 import com.iwbfclassifier.ui.theme.AppSpacing
 import com.iwbfclassifier.ui.theme.AppTypography
 
-/** Which decision field the class buttons currently edit (docs/02). */
-enum class ClassTarget(val label: String) {
-    Starting("Initial"),
-    MyOpinion("My Opinion"),
-    Final("Final"),
-}
-
+/** Compact tap-to-open dropdown for picking a Sport Class (with a "—" clear option). */
 @Composable
-fun <T> SegmentedControl(
-    options: List<T>,
-    selected: T,
-    label: (T) -> String,
-    onSelect: (T) -> Unit,
+fun ClassDropdownCell(
+    value: SportClass?,
+    onSelect: (SportClass?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(modifier = modifier.clip(AppShapes.button).border(1.dp, AppColors.DividerGray, AppShapes.button)) {
-        options.forEachIndexed { index, option ->
-            val isSelected = option == selected
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(44.dp)
-                    .background(if (isSelected) AppColors.Gold else AppColors.PanelBlack)
-                    .clickable { onSelect(option) },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    label(option),
-                    style = AppTypography.chip,
-                    color = if (isSelected) AppColors.InkBlack else AppColors.TextSecondary,
-                )
-            }
-            if (index < options.lastIndex) {
-                Box(Modifier.width(1.dp).height(44.dp).background(AppColors.DividerGray))
+    var expanded by remember { mutableStateOf(false) }
+    Box(modifier) {
+        DropdownCellButton(value?.code ?: "—") { expanded = true }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(text = { Text("—") }, onClick = { onSelect(null); expanded = false })
+            SportClass.selectable.forEach { sc ->
+                DropdownMenuItem(text = { Text(sc.code) }, onClick = { onSelect(sc); expanded = false })
             }
         }
     }
 }
 
-/** Tappable Sport Class buttons (docs/03, docs/12). */
-@OptIn(ExperimentalLayoutApi::class)
+/** Compact tap-to-open dropdown for picking a Sport Class Status (with a "—" clear option). */
 @Composable
-fun ClassButtonRow(
-    selected: SportClass?,
-    onSelect: (SportClass) -> Unit,
+fun StatusDropdownCell(
+    value: SportClassStatus?,
+    onSelect: (SportClassStatus?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    FlowRow(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm),
-        verticalArrangement = Arrangement.spacedBy(AppSpacing.sm),
+    var expanded by remember { mutableStateOf(false) }
+    Box(modifier) {
+        DropdownCellButton(value?.code ?: "—") { expanded = true }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(text = { Text("—") }, onClick = { onSelect(null); expanded = false })
+            SportClassStatus.selectable.forEach { st ->
+                DropdownMenuItem(text = { Text("${st.code} · ${st.label}") }, onClick = { onSelect(st); expanded = false })
+            }
+        }
+    }
+}
+
+@Composable
+private fun DropdownCellButton(label: String, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .clip(AppShapes.button)
+            .background(AppColors.PanelBlack)
+            .border(1.dp, AppColors.DividerGray, AppShapes.button)
+            .clickable(onClick = onClick)
+            .padding(horizontal = AppSpacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        SportClass.selectable.forEach { sportClass ->
-            val isSelected = sportClass == selected
-            Box(
-                modifier = Modifier
-                    .height(44.dp)
-                    .widthIn(min = 52.dp)
-                    .clip(AppShapes.button)
-                    .background(if (isSelected) AppColors.Gold else AppColors.CardCharcoal)
-                    .border(1.dp, if (isSelected) AppColors.Gold else AppColors.DividerGray, AppShapes.button)
-                    .clickable { onSelect(sportClass) }
-                    .padding(horizontal = AppSpacing.md),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    sportClass.code,
-                    style = AppTypography.chip,
-                    color = if (isSelected) AppColors.InkBlack else AppColors.TextPrimary,
-                )
-            }
-        }
+        Text(label, style = AppTypography.body, color = AppColors.TextPrimary, modifier = Modifier.weight(1f), maxLines = 1)
+        Text("▾", style = AppTypography.microLabel, color = AppColors.TextSecondary)
     }
 }
 
-/** Choose the target decision field, then tap a class to set it (docs/03). */
+/**
+ * One labeled decision line for the Observation screen: a fixed label, then the Sport
+ * Class and the Sport Class Status side by side as dropdowns — so Initial / My Opinion /
+ * Final are all visible and editable at a glance, no screen or tab switching (user request).
+ */
 @Composable
-fun ClassSelector(
-    target: ClassTarget,
-    onTargetChange: (ClassTarget) -> Unit,
-    valueForTarget: SportClass?,
-    onSelectClass: (SportClass) -> Unit,
+fun ClassStatusRow(
+    label: String,
+    sportClass: SportClass?,
+    onSportClass: (SportClass?) -> Unit,
+    status: SportClassStatus?,
+    onStatus: (SportClassStatus?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
-        SegmentedControl(
-            options = ClassTarget.entries.toList(),
-            selected = target,
-            label = { it.label },
-            onSelect = onTargetChange,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        ClassButtonRow(selected = valueForTarget, onSelect = onSelectClass)
+    Row(
+        modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm),
+    ) {
+        Text(label, style = AppTypography.body, color = AppColors.TextSecondary, modifier = Modifier.weight(1.2f))
+        ClassDropdownCell(sportClass, onSportClass, Modifier.weight(1f))
+        StatusDropdownCell(status, onStatus, Modifier.weight(1.6f))
     }
 }

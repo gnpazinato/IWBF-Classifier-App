@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Adaptive-icon foreground: the basketball PNG (transparent background, user-provided),
-     centered within the safe zone. -->
+     sized smaller and centered so it sits in the middle of the white background with a
+     comfortable margin inside the launcher's safe zone (user request). -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item
         android:gravity="center"
-        android:width="80dp"
-        android:height="80dp"
+        android:width="52dp"
+        android:height="52dp"
         android:drawable="@drawable/ic_launcher_ball" />
 </layer-list>

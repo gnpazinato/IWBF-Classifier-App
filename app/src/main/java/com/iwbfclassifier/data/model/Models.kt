@@ -39,10 +39,16 @@ data class Player(
     val iwbfId: String? = null,
     val dateOfBirth: String? = null,
     val importedSportClass: SportClass? = null,
+    // The athlete's single official Sport Class + Status (from import or manual entry).
+    // [startingSportClass] + [sportClassStatus] are shown/edited on the roster preview, the
+    // Edit Player screen, and the observation "Initial" line — they are the same value.
     val sportClassStatus: SportClassStatus? = null,
     val startingSportClass: SportClass? = null,
+    // Working values that only live on the Observation screen (each its own class + status).
     val myOpinionSportClass: SportClass? = null,
+    val myOpinionSportClassStatus: SportClassStatus? = null,
     val finalSportClass: SportClass? = null,
+    val finalSportClassStatus: SportClassStatus? = null,
     val observationStatus: ObservationStatus = ObservationStatus.NotObserved,
     val mic: MicInfo = MicInfo(),
     val videoEvidence: List<VideoEvidence> = emptyList(),

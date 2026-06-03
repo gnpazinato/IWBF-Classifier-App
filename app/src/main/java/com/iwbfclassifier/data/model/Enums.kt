@@ -2,6 +2,7 @@ package com.iwbfclassifier.data.model
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonNames
 
 /** Sport Class values (docs/09). Serialized by their code, e.g. "1.0", "NE". */
 @Serializable
@@ -30,12 +31,14 @@ enum class SportClass(val code: String) {
     }
 }
 
-/** Sport Class Status — the only four the app uses (user request): N, C, R-NÃO, R-FRD. */
+/** Sport Class Status — the only four the app uses (user request): N, C, R-NAO, R-FRD.
+ *  R-NAO has no accent (user request); @JsonNames keeps older "R-NÃO" files loadable. */
+@OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
 @Serializable
 enum class SportClassStatus(val code: String, val label: String) {
     @SerialName("N") N("N", "New"),
     @SerialName("C") C("C", "Confirmed"),
-    @SerialName("R-NÃO") RNAO("R-NÃO", "Review"),
+    @SerialName("R-NAO") @JsonNames("R-NÃO") RNAO("R-NAO", "Review"),
     @SerialName("R-FRD") RFRD("R-FRD", "Review (Fixed Date)");
 
     companion object {

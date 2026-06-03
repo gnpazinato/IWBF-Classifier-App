@@ -68,9 +68,10 @@ class TeamRosterViewModel(
     }
 }
 
-/** Best-known class for a chip hint: My Opinion → Starting → Imported. */
+/** The athlete's single official class + status for a chip hint (My Opinion / Final live
+ *  only on the Observation screen, per user request). */
 private fun Player.chipClassText(): String? {
-    val sportClass = myOpinionSportClass ?: startingSportClass ?: importedSportClass
+    val sportClass = startingSportClass ?: importedSportClass
     return listOfNotNull(sportClass?.code, sportClassStatus?.code).joinToString(" ").ifBlank { null }
 }
 

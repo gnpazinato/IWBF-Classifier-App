@@ -55,6 +55,8 @@ import com.iwbfclassifier.data.repository.CompetitionRepository
 import com.iwbfclassifier.ui.LocalAppContainer
 import com.iwbfclassifier.ui.components.AppTextField
 import com.iwbfclassifier.ui.components.AppTopBar
+import com.iwbfclassifier.ui.components.ClassDropdownCell
+import com.iwbfclassifier.ui.components.StatusDropdownCell
 import com.iwbfclassifier.ui.components.ConfirmDialog
 import com.iwbfclassifier.ui.components.DestructiveButton
 import com.iwbfclassifier.ui.components.EmptyState
@@ -175,19 +177,9 @@ fun CompetitionDetailScreen(
     var showEdit by remember { mutableStateOf(false) }
     var showGameSetup by remember { mutableStateOf(false) }
     var expandedTeamId by remember { mutableStateOf<String?>(null) }
-    // Pending change to an athlete who already has a final class — needs confirmation.
-    var pendingFinal by remember { mutableStateOf<Pair<Player, SportClass?>?>(null) }
 
     val activeTeams = teams.filter { it.active }
     val archivedTeams = teams.filter { !it.active }
-
-    fun setCurrentClass(player: Player, newClass: SportClass?) {
-        when {
-            player.finalSportClass != null -> pendingFinal = player to newClass
-            player.myOpinionSportClass != null -> vm.updatePlayer(player.copy(myOpinionSportClass = newClass))
-            else -> vm.updatePlayer(player.copy(startingSportClass = newClass))
-        }
-    }
 
     Column(Modifier.fillMaxSize().background(AppColors.InkBlack)) {
         AppTopBar(
@@ -244,7 +236,6 @@ fun CompetitionDetailScreen(
                     onOpenTeam = { onOpenTeam(team.id) },
                     onArchive = { vm.setTeamActive(team.id, false) },
                     onUpdatePlayer = { vm.updatePlayer(it) },
-                    onSetCurrentClass = ::setCurrentClass,
                 )
             }
 
@@ -267,16 +258,6 @@ fun CompetitionDetailScreen(
                 }
             }
         }
-    }
-
-    pendingFinal?.let { (player, newClass) ->
-        ConfirmDialog(
-            title = "Final class is ${player.finalSportClass?.code}",
-            message = "This athlete already has a final class. Change it to ${newClass?.code ?: "—"}?",
-            confirmText = "Change",
-            onConfirm = { vm.updatePlayer(player.copy(finalSportClass = newClass)); pendingFinal = null },
-            onDismiss = { pendingFinal = null },
-        )
     }
 
     if (showGameSetup) {
@@ -330,7 +311,6 @@ private fun ExpandableTeamCard(
     onOpenTeam: () -> Unit,
     onArchive: () -> Unit,
     onUpdatePlayer: (Player) -> Unit,
-    onSetCurrentClass: (Player, SportClass?) -> Unit,
 ) {
     Column(
         Modifier
@@ -367,7 +347,7 @@ private fun ExpandableTeamCard(
                     Text("No players yet.", style = AppTypography.body, color = AppColors.TextMuted)
                 }
                 teamPlayers.forEach { player ->
-                    PlayerInlineRow(player, onUpdatePlayer, onSetCurrentClass)
+                    PlayerInlineRow(player, onUpdatePlayer)
                 }
                 Row(
                     Modifier.fillMaxWidth().padding(top = AppSpacing.xs),
@@ -386,11 +366,9 @@ private fun ExpandableTeamCard(
 private fun PlayerInlineRow(
     player: Player,
     onUpdate: (Player) -> Unit,
-    onSetCurrentClass: (Player, SportClass?) -> Unit,
 ) {
-    // Current class = the most advanced decision recorded for the athlete.
-    val current = player.finalSportClass ?: player.myOpinionSportClass
-        ?: player.startingSportClass ?: player.importedSportClass
+    // The athlete's single official class + status (from import or manual entry). My Opinion
+    // and Final live only on the Observation screen (user request).
     Row(
         Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -398,8 +376,8 @@ private fun PlayerInlineRow(
     ) {
         InlineField(player.uniformNumber.orEmpty(), { onUpdate(player.copy(uniformNumber = it.ifBlank { null })) }, Modifier.weight(1f), KeyboardType.Number)
         InlineField(player.name.orEmpty(), { onUpdate(player.copy(name = it.ifBlank { null })) }, Modifier.weight(3.5f), KeyboardType.Text)
-        ClassCell(current, { onSetCurrentClass(player, it) }, Modifier.weight(1.5f))
-        StatusCell(player.sportClassStatus, { onUpdate(player.copy(sportClassStatus = it)) }, Modifier.weight(1.7f))
+        ClassDropdownCell(player.startingSportClass, { onUpdate(player.copy(startingSportClass = it)) }, Modifier.weight(1.5f))
+        StatusDropdownCell(player.sportClassStatus, { onUpdate(player.copy(sportClassStatus = it)) }, Modifier.weight(1.7f))
     }
 }
 
@@ -420,52 +398,6 @@ private fun InlineField(value: String, onValueChange: (String) -> Unit, modifier
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
         decorationBox = { inner -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) { inner() } },
     )
-}
-
-@Composable
-private fun ClassCell(value: SportClass?, onSelect: (SportClass?) -> Unit, modifier: Modifier) {
-    var expanded by remember { mutableStateOf(false) }
-    Box(modifier) {
-        CellButton(value?.code ?: "—") { expanded = true }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(text = { Text("—") }, onClick = { onSelect(null); expanded = false })
-            SportClass.selectable.forEach { sc ->
-                DropdownMenuItem(text = { Text(sc.code) }, onClick = { onSelect(sc); expanded = false })
-            }
-        }
-    }
-}
-
-@Composable
-private fun StatusCell(value: SportClassStatus?, onSelect: (SportClassStatus?) -> Unit, modifier: Modifier) {
-    var expanded by remember { mutableStateOf(false) }
-    Box(modifier) {
-        CellButton(value?.code ?: "—") { expanded = true }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(text = { Text("—") }, onClick = { onSelect(null); expanded = false })
-            SportClassStatus.selectable.forEach { st ->
-                DropdownMenuItem(text = { Text(st.code) }, onClick = { onSelect(st); expanded = false })
-            }
-        }
-    }
-}
-
-@Composable
-private fun CellButton(label: String, onClick: () -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .height(44.dp)
-            .clip(AppShapes.button)
-            .background(AppColors.PanelBlack)
-            .border(1.dp, AppColors.DividerGray, AppShapes.button)
-            .clickable(onClick = onClick)
-            .padding(horizontal = AppSpacing.sm),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(label, style = AppTypography.body, color = AppColors.TextPrimary, modifier = Modifier.weight(1f), maxLines = 1)
-        Text("▾", style = AppTypography.microLabel, color = AppColors.TextSecondary)
-    }
 }
 
 @Composable

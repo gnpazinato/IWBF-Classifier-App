@@ -204,6 +204,47 @@ fun KeyMomentsDialog(
     }
 }
 
+/**
+ * Manual time entry for "Add Moment" when the embedded player's position can't be read
+ * (the stream is embed-blocked and playing in the YouTube app, so the in-app player
+ * reports 0s). The classifier types the moment's time and we keep a ±5s window.
+ */
+@Composable
+fun CaptureMomentDialog(
+    initialSeconds: Int,
+    onConfirm: (centerSeconds: Int, label: String?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var time by remember { mutableStateOf(formatSeconds(initialSeconds.takeIf { it > 0 }).orEmpty()) }
+    var label by remember { mutableStateOf("") }
+    val seconds = parseTimestampToSeconds(time)
+    val canAdd = seconds != null
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = AppColors.CardCharcoal,
+        title = { Text("Add Moment", color = AppColors.TextPrimary) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
+                Text(
+                    "Couldn't read the player time automatically (the stream is playing outside the app). " +
+                        "Type the moment's time — we'll keep a ±5s slow-motion window around it.",
+                    style = AppTypography.microLabel,
+                    color = AppColors.TextMuted,
+                )
+                AppTextField(time, { time = it }, "Time — mm:ss", placeholder = "12:34")
+                AppTextField(label, { label = it }, "Label (optional)")
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = canAdd, onClick = { onConfirm(seconds!!, label.ifBlank { null }) }) {
+                Text("Add", color = if (canAdd) AppColors.Gold else AppColors.TextMuted)
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = AppColors.TextSecondary) } },
+    )
+}
+
 @Composable
 private fun AddVideoMomentDialog(
     onDismiss: () -> Unit,

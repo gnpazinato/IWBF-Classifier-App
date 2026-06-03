@@ -50,8 +50,10 @@ import com.iwbfclassifier.data.model.InkStroke
 import com.iwbfclassifier.data.model.NotePage
 import com.iwbfclassifier.data.model.Player
 import com.iwbfclassifier.data.model.SportClass
+import com.iwbfclassifier.data.model.SportClassStatus
 import com.iwbfclassifier.data.model.Team
 import com.iwbfclassifier.data.model.VideoEvidence
+import com.iwbfclassifier.data.model.displayName
 import com.iwbfclassifier.data.repository.CompetitionRepository
 import com.iwbfclassifier.ui.LocalAppContainer
 import com.iwbfclassifier.ui.components.ClassSelector
@@ -233,7 +235,7 @@ fun ObservationScreen(
     Column(Modifier.fillMaxSize().background(AppColors.InkBlack)) {
         ObservationTopBar(
             competitionName = competition?.name ?: "Observation",
-            gameName = teamA?.name?.let { a -> teamB?.name?.let { b -> "$a  vs  $b" } },
+            gameName = teamA?.displayName()?.let { a -> teamB?.displayName()?.let { b -> "$a  vs  $b" } },
             saving = saving,
             onBack = onBack,
         )
@@ -258,6 +260,7 @@ fun ObservationScreen(
                         target = target,
                         onTargetChange = { target = it },
                         onSelectClass = { sc -> selectedPlayer?.let { vm.save(applyClass(it, target, sc)) } },
+                        onSelectStatus = { st -> selectedPlayer?.let { vm.save(it.copy(sportClassStatus = st)) } },
                         onOpenPlayer = onOpenPlayer,
                         strokes = strokes,
                         undone = undone,
@@ -284,6 +287,7 @@ fun ObservationScreen(
                         target = target,
                         onTargetChange = { target = it },
                         onSelectClass = { sc -> selectedPlayer?.let { vm.save(applyClass(it, target, sc)) } },
+                        onSelectStatus = { st -> selectedPlayer?.let { vm.save(it.copy(sportClassStatus = st)) } },
                         onOpenPlayer = onOpenPlayer,
                         strokes = strokes,
                         undone = undone,
@@ -382,6 +386,7 @@ private fun ObservationWorkArea(
     target: ClassTarget,
     onTargetChange: (ClassTarget) -> Unit,
     onSelectClass: (SportClass) -> Unit,
+    onSelectStatus: (SportClassStatus?) -> Unit,
     onOpenPlayer: (String) -> Unit,
     strokes: List<InkStroke>,
     undone: List<InkStroke>,
@@ -420,6 +425,7 @@ private fun ObservationWorkArea(
                 onSelectClass = onSelectClass,
                 modifier = Modifier.fillMaxWidth(),
             )
+            StatusRow(value = player.sportClassStatus, onSelect = onSelectStatus)
             NoteCanvasPanel(
                 strokes = strokes,
                 onAddStroke = onAddStroke,
@@ -431,6 +437,30 @@ private fun ObservationWorkArea(
                 canRedo = undone.isNotEmpty(),
                 modifier = Modifier.fillMaxWidth().weight(1f),
             )
+        }
+    }
+}
+
+@Composable
+private fun StatusRow(value: SportClassStatus?, onSelect: (SportClassStatus?) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.xs)) {
+        SectionLabel("Class Status")
+        Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm), modifier = Modifier.fillMaxWidth()) {
+            SportClassStatus.selectable.forEach { st ->
+                val selected = st == value
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .height(44.dp)
+                        .clip(AppShapes.button)
+                        .background(if (selected) AppColors.Gold else AppColors.CardCharcoal)
+                        .border(1.dp, if (selected) AppColors.Gold else AppColors.DividerGray, AppShapes.button)
+                        .clickable { onSelect(if (selected) null else st) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(st.code, style = AppTypography.chip, color = if (selected) AppColors.InkBlack else AppColors.TextPrimary)
+                }
+            }
         }
     }
 }
@@ -451,7 +481,7 @@ private fun PlayerRail(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier.background(AppColors.PanelBlack).padding(AppSpacing.sm)) {
-        SectionLabel(team?.name ?: "—", modifier = Modifier.padding(AppSpacing.sm))
+        SectionLabel(team?.displayName() ?: "—", modifier = Modifier.padding(AppSpacing.sm))
         val teamPlayers = players
             .filter { it.teamId == team?.id }
             .sortedBy { it.uniformNumber?.toIntOrNull() ?: Int.MAX_VALUE }

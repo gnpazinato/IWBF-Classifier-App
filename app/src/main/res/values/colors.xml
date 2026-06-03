@@ -2,5 +2,6 @@
 <resources>
     <color name="ink_black">#0E0E0E</color>
     <color name="gold">#A3975D</color>
-    <color name="ic_launcher_background">#0E0E0E</color>
+    <!-- Transparent launcher background (user request): only the ball shows. -->
+    <color name="ic_launcher_background">#00000000</color>
 </resources>

@@ -38,12 +38,12 @@ class YouTubePlayerController {
     /** Latest known player position in seconds (0 until the page reports one). */
     fun currentSeconds(): Double = lastSeconds
 
-    /** Cue a video (no autoplay). Safe to call before the player is ready — it queues. */
+    /** Load + play a video. Safe to call before the player is ready — it queues. */
     fun load(videoId: String?, startSeconds: Int = 0) {
         if (videoId.isNullOrBlank()) return
         if (isReady) {
             loadedVideoId = videoId
-            js("cue('$videoId', $startSeconds);")
+            js("loadVid('$videoId', $startSeconds);")
         } else {
             pendingVideoId = videoId
             pendingStart = startSeconds
@@ -62,7 +62,7 @@ class YouTubePlayerController {
         isReady = true
         pendingVideoId?.let { v ->
             loadedVideoId = v
-            js("cue('$v', $pendingStart);")
+            js("loadVid('$v', $pendingStart);")
             pendingVideoId = null
         }
     }
@@ -166,8 +166,9 @@ private const val PLAYER_HTML = """
 </head>
 <body>
 <div id="player"></div>
-<div id="err"><p id="errmsg">This video can't be played here.</p>
-  <button onclick="Android.openInYouTube()">Open in YouTube</button></div>
+<div id="err" onclick="hideErr()"><p id="errmsg">This video can't be played here.</p>
+  <button onclick="event.stopPropagation(); Android.openInYouTube()">Open in YouTube</button>
+  <p style="font-size:12px;color:#888;margin-top:12px">Tap to dismiss</p></div>
 <script src="https://www.youtube.com/iframe_api"></script>
 <script>
 var player = null;
@@ -178,16 +179,15 @@ function hideErr(){ document.getElementById('err').style.display='none'; }
 function onYouTubeIframeAPIReady() {
   player = new YT.Player('player', {
     width: '100%', height: '100%',
-    playerVars: { playsinline: 1, rel: 0, modestbranding: 1, controls: 1, fs: 1 },
+    playerVars: { playsinline: 1, rel: 0, modestbranding: 1, controls: 1, fs: 1, autoplay: 1 },
     events: {
       'onReady': function() { if (window.Android && Android.onReady) Android.onReady(); },
       'onStateChange': function(e) { if (e.data == 1 || e.data == 3) hideErr(); },
       'onError': function(e) {
+        // Only cover the player for definitive errors (unavailable / embedding blocked).
         var c = e.data;
-        var msg = (c == 101 || c == 150) ? "The owner doesn't allow this video to be embedded."
-          : (c == 100) ? "This video is unavailable."
-          : "This video can't be played here.";
-        showErr(msg);
+        if (c == 101 || c == 150) showErr("The video owner blocked playback outside YouTube.");
+        else if (c == 100) showErr("This video is unavailable.");
       }
     }
   });
@@ -201,7 +201,7 @@ function onYouTubeIframeAPIReady() {
     } catch (e) {}
   }, 250);
 }
-function cue(id, start) { if (!player) return; hideErr(); endTime = -1; player.cueVideoById({videoId: id, startSeconds: start}); }
+function loadVid(id, start) { if (!player) return; hideErr(); endTime = -1; player.loadVideoById({videoId: id, startSeconds: start}); }
 function playWindow(start, end, rate) {
   if (!player) return;
   endTime = end;

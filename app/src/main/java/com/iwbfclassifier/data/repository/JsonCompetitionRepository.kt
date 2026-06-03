@@ -218,6 +218,7 @@ class JsonCompetitionRepository(
                     competitionId = competitionId,
                     name = pt.name.ifBlank { "New Team" },
                     code = pt.code?.ifBlank { null },
+                    gender = pt.gender,
                     source = SourceInfo(type = "import", fileName = pt.sourceFile),
                 )
                 newTeams += team

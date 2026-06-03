@@ -6,7 +6,6 @@ object Routes {
     const val TeamRoster = "competition/{competitionId}/team/{teamId}"
     const val PlayerEdit = "player/{playerId}"
     const val Observation = "competition/{competitionId}/observe"
-    const val RosterOverview = "competition/{competitionId}/overview"
     const val ImportNew = "import"
     const val ImportInto = "competition/{competitionId}/import"
 
@@ -18,6 +17,5 @@ object Routes {
     fun teamRoster(competitionId: String, teamId: String) = "competition/$competitionId/team/$teamId"
     fun playerEdit(playerId: String) = "player/$playerId"
     fun observation(competitionId: String) = "competition/$competitionId/observe"
-    fun rosterOverview(competitionId: String) = "competition/$competitionId/overview"
     fun importInto(competitionId: String) = "competition/$competitionId/import"
 }

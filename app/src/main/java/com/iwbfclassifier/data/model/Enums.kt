@@ -30,25 +30,28 @@ enum class SportClass(val code: String) {
     }
 }
 
-/** Sport Class Status values (docs/09). Serialized by their short code, e.g. "C". */
+/** Sport Class Status — the only four the app uses (user request): N, C, R-NÃO, R-FRD. */
 @Serializable
 enum class SportClassStatus(val code: String, val label: String) {
     @SerialName("N") N("N", "New"),
     @SerialName("C") C("C", "Confirmed"),
-    @SerialName("R") R("R", "Review"),
-    @SerialName("FRD") FRD("FRD", "Review (Fixed Date)"),
-    @SerialName("CNC") CNC("CNC", "Classification Not Complete"),
-    @SerialName("OA") OA("OA", "Observation Assessment"),
-    @SerialName("RT") RT("RT", "Sport Review (Transition)"),
-    @SerialName("CT") CT("CT", "Confirmed Transition");
+    @SerialName("R-NÃO") RNAO("R-NÃO", "Review"),
+    @SerialName("R-FRD") RFRD("R-FRD", "Review (Fixed Date)");
 
     companion object {
         val selectable: List<SportClassStatus> = entries.toList()
 
+        /** Lenient parse for imported data; maps legacy "R"/"FRD" to the new codes. */
         fun fromCode(raw: String?): SportClassStatus? {
             if (raw.isNullOrBlank()) return null
-            val norm = raw.trim().uppercase()
-            return entries.firstOrNull { it.code.equals(norm, ignoreCase = true) }
+            val n = raw.trim().uppercase().replace('Ã', 'A').replace('–', '-')
+            return when {
+                n == "N" -> N
+                n == "C" -> C
+                n == "R-FRD" || n == "FRD" || n == "RFRD" -> RFRD
+                n == "R-NAO" || n == "RNAO" || n.startsWith("R") -> RNAO
+                else -> null
+            }
         }
     }
 }

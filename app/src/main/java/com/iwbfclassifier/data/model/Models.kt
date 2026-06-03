@@ -26,6 +26,9 @@ data class Team(
     val source: SourceInfo? = null,
 )
 
+/** Team name with its W/M gender suffix for display, e.g. "Argentina W". */
+fun Team.displayName(): String = if (gender.isNullOrBlank()) name else "$name $gender"
+
 @Serializable
 data class Player(
     val id: String,

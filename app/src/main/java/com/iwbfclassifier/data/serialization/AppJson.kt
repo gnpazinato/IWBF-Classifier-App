@@ -12,4 +12,7 @@ val AppJson: Json = Json {
     encodeDefaults = true
     ignoreUnknownKeys = true
     isLenient = true
+    // A value no longer in an enum (e.g. a retired Sport Class Status) coerces to the
+    // property default instead of failing the whole record.
+    coerceInputValues = true
 }

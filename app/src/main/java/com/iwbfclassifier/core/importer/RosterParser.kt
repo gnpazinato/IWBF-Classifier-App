@@ -198,6 +198,7 @@ object RosterParser {
 
     private data class ColMap(
         val team: Int?,
+        val gender: Int?,
         val number: Int?,
         val name: Int?,
         val klass: Int?,
@@ -226,6 +227,7 @@ object RosterParser {
 
         return ColMap(
             team = find("team"),
+            gender = find("gender", "sex"),
             number = find("uniform", "number", "#", "no."),
             name = name,
             klass = klass,
@@ -284,7 +286,8 @@ object RosterParser {
         if (headerIdx < 0) return emptyList()
         val cols = mapColumns(table[headerIdx]) ?: return emptyList()
 
-        val tagged = ArrayList<Pair<String?, ParsedPlayer>>()
+        // (team value, normalized gender, player) in file order.
+        val tagged = ArrayList<Triple<String?, String?, ParsedPlayer>>()
         for (i in (headerIdx + 1) until table.size) {
             val row = table[i]
             fun cell(idx: Int?): String? = idx?.let { row.getOrNull(it) }?.trim()?.ifBlank { null }
@@ -292,37 +295,44 @@ object RosterParser {
             val number = cell(cols.number)?.let { Regex("""\d+""").find(it)?.value }
             if (name == null && number == null) continue
             if (name != null && mapColumns(row) != null && name.lowercase().contains("player")) continue
-            tagged += cell(cols.team) to ParsedPlayer(
-                number = number,
-                name = name,
-                importedClass = SportClass.fromCode(cell(cols.klass)),
-                scs = SportClassStatus.fromCode(cell(cols.scs)),
-                iwbfId = cell(cols.iwbfId),
-                dob = cell(cols.dob),
-                healthCondition = cell(cols.health),
-                impairment = cell(cols.impairment),
-                notes = cell(cols.notes),
-                panel = cell(cols.panel),
-                sourceFile = sourceFile,
+            tagged += Triple(
+                cell(cols.team),
+                normalizeGender(cell(cols.gender)),
+                ParsedPlayer(
+                    number = number,
+                    name = name,
+                    importedClass = SportClass.fromCode(cell(cols.klass)),
+                    scs = SportClassStatus.fromCode(cell(cols.scs)),
+                    iwbfId = cell(cols.iwbfId),
+                    dob = cell(cols.dob),
+                    healthCondition = cell(cols.health),
+                    impairment = cell(cols.impairment),
+                    notes = cell(cols.notes),
+                    panel = cell(cols.panel),
+                    sourceFile = sourceFile,
+                ),
             )
         }
         if (tagged.isEmpty()) return emptyList()
 
         return if (cols.team != null && tagged.any { it.first != null }) {
-            val grouped = LinkedHashMap<String, MutableList<ParsedPlayer>>()
-            for ((teamVal, player) in tagged) {
-                grouped.getOrPut(teamVal ?: "Unassigned") { mutableListOf() }.add(player)
+            // Same team name with different gender = separate squads (user request).
+            val grouped = LinkedHashMap<Pair<String, String?>, MutableList<ParsedPlayer>>()
+            for ((teamVal, gender, player) in tagged) {
+                grouped.getOrPut((teamVal ?: "Unassigned") to gender) { mutableListOf() }.add(player)
             }
-            grouped.map { (teamName, teamPlayers) ->
-                ParsedTeam(name = teamName, code = teamCodeFromName(teamName), sourceFile = sourceFile, players = teamPlayers)
+            grouped.map { (key, teamPlayers) ->
+                val (teamName, gender) = key
+                ParsedTeam(name = teamName, code = teamCodeFromName(teamName), gender = gender, sourceFile = sourceFile, players = teamPlayers)
             }
         } else {
             listOf(
                 ParsedTeam(
                     name = teamNameFromFile(sourceFile),
                     code = teamCodeFromFile(sourceFile),
+                    gender = tagged.firstNotNullOfOrNull { it.second },
                     sourceFile = sourceFile,
-                    players = tagged.map { it.second },
+                    players = tagged.map { it.third },
                 ),
             )
         }
@@ -330,6 +340,17 @@ object RosterParser {
 
     private fun teamCodeFromName(name: String): String? =
         name.split(Regex("""\s+""")).firstOrNull()?.trim()?.ifBlank { null }
+
+    /** female/women/woman/f/w → "W"; male/men/man/m → "M"; else first letter. */
+    private fun normalizeGender(raw: String?): String? {
+        val l = raw?.trim()?.lowercase() ?: return null
+        if (l.isBlank()) return null
+        return when {
+            l.startsWith("f") || l.startsWith("w") || l.contains("wom") || l.contains("fem") || l.contains("mulher") -> "W"
+            l.startsWith("m") || l.contains("masc") || l.contains("homem") -> "M"
+            else -> raw.trim().take(1).uppercase()
+        }
+    }
 
     // === MIC merge ===
 

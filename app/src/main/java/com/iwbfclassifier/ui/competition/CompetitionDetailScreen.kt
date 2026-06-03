@@ -11,15 +11,20 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,8 +45,12 @@ import com.iwbfclassifier.core.extractYoutubeId
 import com.iwbfclassifier.core.newId
 import com.iwbfclassifier.data.model.Competition
 import com.iwbfclassifier.data.model.Game
+import com.iwbfclassifier.data.model.Player
+import com.iwbfclassifier.data.model.SportClass
+import com.iwbfclassifier.data.model.SportClassStatus
 import com.iwbfclassifier.data.model.Team
 import com.iwbfclassifier.data.model.YoutubeInfo
+import com.iwbfclassifier.data.model.displayName
 import com.iwbfclassifier.data.repository.CompetitionRepository
 import com.iwbfclassifier.ui.LocalAppContainer
 import com.iwbfclassifier.ui.components.AppTextField
@@ -127,6 +136,10 @@ class CompetitionDetailViewModel(
         viewModelScope.launch { repo.deleteTeamPermanently(teamId) }
     }
 
+    fun updatePlayer(player: Player) {
+        viewModelScope.launch { repo.updatePlayer(player) }
+    }
+
     fun updateCompetition(updated: Competition) {
         viewModelScope.launch { repo.updateCompetition(updated) }
     }
@@ -146,7 +159,6 @@ fun CompetitionDetailScreen(
     onOpenTeam: (String) -> Unit,
     onOpenObservation: () -> Unit,
     onOpenImport: () -> Unit,
-    onOpenOverview: () -> Unit,
 ) {
     val container = LocalAppContainer.current
     val vm: CompetitionDetailViewModel = viewModel(
@@ -162,9 +174,20 @@ fun CompetitionDetailScreen(
     var showAddTeam by remember { mutableStateOf(false) }
     var showEdit by remember { mutableStateOf(false) }
     var showGameSetup by remember { mutableStateOf(false) }
+    var expandedTeamId by remember { mutableStateOf<String?>(null) }
+    // Pending change to an athlete who already has a final class — needs confirmation.
+    var pendingFinal by remember { mutableStateOf<Pair<Player, SportClass?>?>(null) }
 
     val activeTeams = teams.filter { it.active }
     val archivedTeams = teams.filter { !it.active }
+
+    fun setCurrentClass(player: Player, newClass: SportClass?) {
+        when {
+            player.finalSportClass != null -> pendingFinal = player to newClass
+            player.myOpinionSportClass != null -> vm.updatePlayer(player.copy(myOpinionSportClass = newClass))
+            else -> vm.updatePlayer(player.copy(startingSportClass = newClass))
+        }
+    }
 
     Column(Modifier.fillMaxSize().background(AppColors.InkBlack)) {
         AppTopBar(
@@ -184,15 +207,8 @@ fun CompetitionDetailScreen(
         ) {
             item {
                 PrimaryButton(
-                    "Open Observation",
+                    "Start Observation",
                     onClick = { showGameSetup = true },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-            item {
-                SecondaryButton(
-                    "Players Overview",
-                    onClick = onOpenOverview,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -214,32 +230,53 @@ fun CompetitionDetailScreen(
             }
 
             if (activeTeams.isEmpty() && archivedTeams.isEmpty()) {
-                item { EmptyState("No teams yet", "Add a team manually, or import an entry list later.") }
+                item { EmptyState("No teams yet", "Add a team manually, or upload the Excel template.") }
             }
 
             items(activeTeams, key = { it.id }) { team ->
-                TeamRow(
+                ExpandableTeamCard(
                     team = team,
-                    playerCount = players.count { it.teamId == team.id && it.active },
-                    onClick = { onOpenTeam(team.id) },
+                    teamPlayers = players
+                        .filter { it.teamId == team.id && it.active }
+                        .sortedBy { it.uniformNumber?.toIntOrNull() ?: Int.MAX_VALUE },
+                    expanded = expandedTeamId == team.id,
+                    onToggle = { expandedTeamId = if (expandedTeamId == team.id) null else team.id },
+                    onOpenTeam = { onOpenTeam(team.id) },
                     onArchive = { vm.setTeamActive(team.id, false) },
-                    onRestore = null,
+                    onUpdatePlayer = { vm.updatePlayer(it) },
+                    onSetCurrentClass = ::setCurrentClass,
                 )
             }
 
             if (archivedTeams.isNotEmpty()) {
                 item { SectionLabel("Archived", modifier = Modifier.padding(top = AppSpacing.sm)) }
                 items(archivedTeams, key = { it.id }) { team ->
-                    TeamRow(
-                        team = team,
-                        playerCount = players.count { it.teamId == team.id },
-                        onClick = { onOpenTeam(team.id) },
-                        onArchive = null,
-                        onRestore = { vm.setTeamActive(team.id, true) },
-                    )
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(AppShapes.card)
+                            .background(AppColors.CardCharcoal)
+                            .border(1.dp, AppColors.DividerGray, AppShapes.card)
+                            .padding(AppSpacing.lg)
+                            .alpha(0.6f),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(team.displayName(), style = AppTypography.body, color = AppColors.TextPrimary, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { vm.setTeamActive(team.id, true) }) { Text("Restore", color = AppColors.Gold) }
+                    }
                 }
             }
         }
+    }
+
+    pendingFinal?.let { (player, newClass) ->
+        ConfirmDialog(
+            title = "Final class is ${player.finalSportClass?.code}",
+            message = "This athlete already has a final class. Change it to ${newClass?.code ?: "—"}?",
+            confirmText = "Change",
+            onConfirm = { vm.updatePlayer(player.copy(finalSportClass = newClass)); pendingFinal = null },
+            onDismiss = { pendingFinal = null },
+        )
     }
 
     if (showGameSetup) {
@@ -285,31 +322,149 @@ fun CompetitionDetailScreen(
 }
 
 @Composable
-private fun TeamRow(
+private fun ExpandableTeamCard(
     team: Team,
-    playerCount: Int,
-    onClick: () -> Unit,
-    onArchive: (() -> Unit)?,
-    onRestore: (() -> Unit)?,
+    teamPlayers: List<Player>,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    onOpenTeam: () -> Unit,
+    onArchive: () -> Unit,
+    onUpdatePlayer: (Player) -> Unit,
+    onSetCurrentClass: (Player, SportClass?) -> Unit,
 ) {
-    Row(
+    Column(
         Modifier
             .fillMaxWidth()
             .clip(AppShapes.card)
             .background(AppColors.CardCharcoal)
-            .border(1.dp, AppColors.DividerGray, AppShapes.card)
+            .border(1.dp, if (expanded) AppColors.GoldBorder else AppColors.DividerGray, AppShapes.card),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(AppSpacing.lg),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(team.displayName(), style = AppTypography.header, color = AppColors.TextPrimary)
+                Text("${teamPlayers.size} players", style = AppTypography.microLabel, color = AppColors.TextMuted)
+            }
+            Text(if (expanded) "▴" else "▾", style = AppTypography.header, color = AppColors.TextSecondary)
+        }
+        if (expanded) {
+            Column(
+                Modifier.fillMaxWidth().padding(start = AppSpacing.md, end = AppSpacing.md, bottom = AppSpacing.md),
+                verticalArrangement = Arrangement.spacedBy(AppSpacing.xs),
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = AppSpacing.sm),
+                    horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm),
+                ) {
+                    Text("Nº", style = AppTypography.microLabel, color = AppColors.TextMuted, modifier = Modifier.weight(1f))
+                    Text("FULL NAME", style = AppTypography.microLabel, color = AppColors.TextMuted, modifier = Modifier.weight(3.5f))
+                    Text("CLASS", style = AppTypography.microLabel, color = AppColors.TextMuted, modifier = Modifier.weight(1.5f))
+                    Text("STATUS", style = AppTypography.microLabel, color = AppColors.TextMuted, modifier = Modifier.weight(1.7f))
+                }
+                if (teamPlayers.isEmpty()) {
+                    Text("No players yet.", style = AppTypography.body, color = AppColors.TextMuted)
+                }
+                teamPlayers.forEach { player ->
+                    PlayerInlineRow(player, onUpdatePlayer, onSetCurrentClass)
+                }
+                Row(
+                    Modifier.fillMaxWidth().padding(top = AppSpacing.xs),
+                    horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    SecondaryButton("Open team", onClick = onOpenTeam, modifier = Modifier.weight(1f))
+                    TextButton(onClick = onArchive) { Text("Archive", color = AppColors.TextSecondary) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayerInlineRow(
+    player: Player,
+    onUpdate: (Player) -> Unit,
+    onSetCurrentClass: (Player, SportClass?) -> Unit,
+) {
+    // Current class = the most advanced decision recorded for the athlete.
+    val current = player.finalSportClass ?: player.myOpinionSportClass
+        ?: player.startingSportClass ?: player.importedSportClass
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm),
+    ) {
+        InlineField(player.uniformNumber.orEmpty(), { onUpdate(player.copy(uniformNumber = it.ifBlank { null })) }, Modifier.weight(1f), KeyboardType.Number)
+        InlineField(player.name.orEmpty(), { onUpdate(player.copy(name = it.ifBlank { null })) }, Modifier.weight(3.5f), KeyboardType.Text)
+        ClassCell(current, { onSetCurrentClass(player, it) }, Modifier.weight(1.5f))
+        StatusCell(player.sportClassStatus, { onUpdate(player.copy(sportClassStatus = it)) }, Modifier.weight(1.7f))
+    }
+}
+
+@Composable
+private fun InlineField(value: String, onValueChange: (String) -> Unit, modifier: Modifier, keyboardType: KeyboardType) {
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier
+            .height(44.dp)
+            .clip(AppShapes.button)
+            .background(AppColors.PanelBlack)
+            .border(1.dp, AppColors.DividerGray, AppShapes.button)
+            .padding(horizontal = AppSpacing.sm),
+        singleLine = true,
+        textStyle = AppTypography.body.copy(color = AppColors.TextPrimary),
+        cursorBrush = SolidColor(AppColors.Gold),
+        keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+        decorationBox = { inner -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) { inner() } },
+    )
+}
+
+@Composable
+private fun ClassCell(value: SportClass?, onSelect: (SportClass?) -> Unit, modifier: Modifier) {
+    var expanded by remember { mutableStateOf(false) }
+    Box(modifier) {
+        CellButton(value?.code ?: "—") { expanded = true }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(text = { Text("—") }, onClick = { onSelect(null); expanded = false })
+            SportClass.selectable.forEach { sc ->
+                DropdownMenuItem(text = { Text(sc.code) }, onClick = { onSelect(sc); expanded = false })
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatusCell(value: SportClassStatus?, onSelect: (SportClassStatus?) -> Unit, modifier: Modifier) {
+    var expanded by remember { mutableStateOf(false) }
+    Box(modifier) {
+        CellButton(value?.code ?: "—") { expanded = true }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(text = { Text("—") }, onClick = { onSelect(null); expanded = false })
+            SportClassStatus.selectable.forEach { st ->
+                DropdownMenuItem(text = { Text(st.code) }, onClick = { onSelect(st); expanded = false })
+            }
+        }
+    }
+}
+
+@Composable
+private fun CellButton(label: String, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .clip(AppShapes.button)
+            .background(AppColors.PanelBlack)
+            .border(1.dp, AppColors.DividerGray, AppShapes.button)
             .clickable(onClick = onClick)
-            .alpha(if (team.active) 1f else 0.5f)
-            .padding(AppSpacing.lg),
+            .padding(horizontal = AppSpacing.sm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(Modifier.weight(1f)) {
-            Text(team.name, style = AppTypography.header, color = AppColors.TextPrimary)
-            val subtitle = listOfNotNull(team.code, team.gender, "$playerCount Players").joinToString(" · ")
-            Text(subtitle, style = AppTypography.microLabel, color = AppColors.TextMuted)
-        }
-        if (onArchive != null) TextButton(onClick = onArchive) { Text("Archive", color = AppColors.TextSecondary) }
-        if (onRestore != null) TextButton(onClick = onRestore) { Text("Restore", color = AppColors.Gold) }
+        Text(label, style = AppTypography.body, color = AppColors.TextPrimary, modifier = Modifier.weight(1f), maxLines = 1)
+        Text("▾", style = AppTypography.microLabel, color = AppColors.TextSecondary)
     }
 }
 

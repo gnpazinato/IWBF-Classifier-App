@@ -18,10 +18,11 @@ data class ParsedPlayer(
     val sourceFile: String? = null,
 )
 
-/** A team parsed from one source file (one entry list ≈ one team). */
+/** A team parsed from a source file. [gender] is normalized to "W"/"M" (or null). */
 data class ParsedTeam(
     val name: String,
     val code: String? = null,
+    val gender: String? = null,
     val sourceFile: String? = null,
     val players: List<ParsedPlayer> = emptyList(),
 )

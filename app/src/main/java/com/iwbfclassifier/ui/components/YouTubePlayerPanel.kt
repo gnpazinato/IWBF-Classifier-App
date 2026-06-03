@@ -179,15 +179,25 @@ function hideErr(){ document.getElementById('err').style.display='none'; }
 function onYouTubeIframeAPIReady() {
   player = new YT.Player('player', {
     width: '100%', height: '100%',
-    playerVars: { playsinline: 1, rel: 0, modestbranding: 1, controls: 1, fs: 1, autoplay: 1 },
+    // enablejsapi + origin are REQUIRED for the IFrame API to work inside an Android
+    // WebView: origin must match the WebView base URL (https://www.youtube.com), otherwise
+    // YouTube refuses the embed and reports error 150/153 even for embeddable videos.
+    playerVars: { playsinline: 1, rel: 0, modestbranding: 1, controls: 1, fs: 1, autoplay: 1,
+                  enablejsapi: 1, origin: 'https://www.youtube.com' },
     events: {
       'onReady': function() { if (window.Android && Android.onReady) Android.onReady(); },
       'onStateChange': function(e) { if (e.data == 1 || e.data == 3) hideErr(); },
       'onError': function(e) {
-        // Only cover the player for definitive errors (unavailable / embedding blocked).
+        // Show the exact code so a failing video can be diagnosed precisely. The overlay
+        // auto-hides if playback then starts (onStateChange), so a transient error is fine.
         var c = e.data;
-        if (c == 101 || c == 150) showErr("The video owner blocked playback outside YouTube.");
-        else if (c == 100) showErr("This video is unavailable.");
+        var msg;
+        if (c == 101 || c == 150) msg = "The video owner blocked playback in embedded players.";
+        else if (c == 100) msg = "This video is unavailable (removed or private).";
+        else if (c == 5) msg = "This video can't be played in the in-app player.";
+        else if (c == 2) msg = "Invalid video link.";
+        else msg = "This video can't be played here.";
+        showErr(msg + " (error " + c + ")");
       }
     }
   });

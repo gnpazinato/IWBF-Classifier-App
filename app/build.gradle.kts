@@ -8,8 +8,8 @@ plugins {
 }
 
 // Bump on every adjustment; bump the major (first number) for significant changes.
-val appVersionName = "1.4.0"
-val appVersionCode = 6
+val appVersionName = "1.4.1"
+val appVersionCode = 7
 
 android {
     namespace = "com.iwbfclassifier"

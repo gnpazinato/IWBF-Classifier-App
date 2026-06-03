@@ -152,6 +152,10 @@ private const val PLAYER_HTML = """
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<!-- YouTube (since mid-2025) rejects embeds that don't send a Referer identifying the
+     host, returning error 152/153 even for embeddable videos. Forcing the origin referrer
+     here makes the WebView send it (loadDataWithBaseURL otherwise often sends none). -->
+<meta name="referrer" content="origin">
 <style>
   html,body{margin:0;padding:0;background:#000;height:100%;width:100%;overflow:hidden}
   body{position:relative}
@@ -179,6 +183,9 @@ function hideErr(){ document.getElementById('err').style.display='none'; }
 function onYouTubeIframeAPIReady() {
   player = new YT.Player('player', {
     width: '100%', height: '100%',
+    // Privacy-enhanced host — more permissive for embeds and recommended for the 2025
+    // referer change; the embedding page origin stays youtube.com (see playerVars).
+    host: 'https://www.youtube-nocookie.com',
     // enablejsapi + origin are REQUIRED for the IFrame API to work inside an Android
     // WebView: origin must match the WebView base URL (https://www.youtube.com), otherwise
     // YouTube refuses the embed and reports error 150/153 even for embeddable videos.

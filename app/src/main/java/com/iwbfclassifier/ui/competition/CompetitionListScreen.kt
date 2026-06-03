@@ -37,7 +37,6 @@ import com.iwbfclassifier.data.repository.CompetitionRepository
 import com.iwbfclassifier.ui.LocalAppContainer
 import com.iwbfclassifier.ui.components.AppTextField
 import com.iwbfclassifier.ui.components.AppTopBar
-import com.iwbfclassifier.ui.components.DateField
 import com.iwbfclassifier.ui.components.EmptyState
 import com.iwbfclassifier.ui.components.PrimaryButton
 import com.iwbfclassifier.ui.components.SecondaryButton
@@ -90,8 +89,8 @@ fun CompetitionListScreen(
                 modifier = Modifier.weight(1f),
             )
             HomeActionCard(
-                title = "Import Roster Files",
-                subtitle = "Upload a ZIP, Word, Excel or PDF from the classification chief.",
+                title = "Import Players",
+                subtitle = "Upload the Excel template (.xlsx) with the players' information.",
                 primary = false,
                 onClick = onImport,
                 modifier = Modifier.weight(1f),
@@ -124,8 +123,8 @@ fun CompetitionListScreen(
     if (showCreate) {
         CreateCompetitionDialog(
             onDismiss = { showCreate = false },
-            onCreate = { name, location, startDate ->
-                vm.create(name, location, startDate)
+            onCreate = { name ->
+                vm.create(name, null, null)
                 showCreate = false
             },
         )
@@ -200,24 +199,21 @@ private fun CompetitionCard(
 @Composable
 private fun CreateCompetitionDialog(
     onDismiss: () -> Unit,
-    onCreate: (name: String, location: String?, startDate: String?) -> Unit,
+    onCreate: (name: String) -> Unit,
 ) {
     var name by remember { mutableStateOf("") }
-    var location by remember { mutableStateOf("") }
-    var startDate by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = AppColors.CardCharcoal,
         title = { Text("New Competition", color = AppColors.TextPrimary) },
         text = {
+            // Only the name is needed — date/location aren't part of the roster template.
             Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
-                AppTextField(name, { name = it }, "Name")
-                AppTextField(location, { location = it }, "Location (optional)")
-                DateField("Start Date (optional)", startDate.ifBlank { null }, { startDate = it.orEmpty() })
+                AppTextField(name, { name = it }, "Competition name")
             }
         },
         confirmButton = {
-            TextButton(onClick = { onCreate(name, location, startDate) }, enabled = name.isNotBlank()) {
+            TextButton(onClick = { onCreate(name) }, enabled = name.isNotBlank()) {
                 Text("Create", color = if (name.isNotBlank()) AppColors.Gold else AppColors.TextMuted)
             }
         },

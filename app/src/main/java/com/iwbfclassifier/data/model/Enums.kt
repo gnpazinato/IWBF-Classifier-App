@@ -17,7 +17,9 @@ enum class SportClass(val code: String) {
     @SerialName("NE") NE("NE");
 
     companion object {
-        val selectable: List<SportClass> = entries.toList()
+        // NE removed as a selectable class (user request); kept in the enum so any
+        // previously-saved "NE" still deserializes.
+        val selectable: List<SportClass> = entries.filter { it != NE }
 
         /** Lenient parse for imported data: handles "4,0" and stray whitespace/case. */
         fun fromCode(raw: String?): SportClass? {

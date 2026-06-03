@@ -10,8 +10,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -121,6 +124,84 @@ fun VideoEvidenceSection(
 
 private fun openLink(context: android.content.Context, url: String) {
     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+}
+
+/**
+ * A player's key moments in a dialog (user request): opening it from the observation
+ * screen keeps the moment list off the note canvas. Replay runs in the embedded player;
+ * Open launches YouTube; manual add is available when [onAdd] is provided.
+ */
+@Composable
+fun KeyMomentsDialog(
+    evidence: List<VideoEvidence>,
+    onReplay: ((VideoEvidence) -> Unit)?,
+    onRemove: (VideoEvidence) -> Unit,
+    onAdd: ((VideoEvidence) -> Unit)?,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    var showManual by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = AppColors.CardCharcoal,
+        title = { Text("Key Moments (${evidence.size})", color = AppColors.TextPrimary) },
+        text = {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
+                if (evidence.isEmpty()) {
+                    Text(
+                        "No moments yet. Tap Add Moment while watching to capture a slow-motion clip.",
+                        style = AppTypography.body,
+                        color = AppColors.TextMuted,
+                    )
+                } else {
+                    Column(
+                        Modifier.fillMaxWidth().heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(AppSpacing.sm),
+                    ) {
+                        evidence.forEach { ev ->
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clip(AppShapes.card)
+                                    .background(AppColors.PanelBlack)
+                                    .border(1.dp, AppColors.DividerGray, AppShapes.card)
+                                    .padding(AppSpacing.sm),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        ev.label?.takeIf { it.isNotBlank() } ?: "YouTube moment",
+                                        style = AppTypography.body,
+                                        color = AppColors.TextPrimary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    val window = formatSeconds(ev.startSeconds)?.let { s ->
+                                        formatSeconds(ev.endSeconds)?.let { e -> "$s–$e" } ?: "@ $s"
+                                    }
+                                    val rate = if (ev.playbackRate != 1.0) "${ev.playbackRate}x" else null
+                                    Text(
+                                        listOfNotNull(window, rate).joinToString("  ·  "),
+                                        style = AppTypography.microLabel,
+                                        color = AppColors.Gold,
+                                        maxLines = 1,
+                                    )
+                                }
+                                if (onReplay != null) TextButton(onClick = { onReplay(ev) }) { Text("Replay", color = AppColors.Gold) }
+                                TextButton(onClick = { openLink(context, ev.url) }) { Text("Open", color = AppColors.Gold) }
+                                TextButton(onClick = { onRemove(ev) }) { Text("Remove", color = AppColors.TextSecondary) }
+                            }
+                        }
+                    }
+                }
+                if (onAdd != null) SecondaryButton("Add link manually", onClick = { showManual = true }, modifier = Modifier.fillMaxWidth())
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close", color = AppColors.Gold) } },
+    )
+    if (showManual && onAdd != null) {
+        AddVideoMomentDialog(onDismiss = { showManual = false }, onAdd = { onAdd(it); showManual = false })
+    }
 }
 
 @Composable

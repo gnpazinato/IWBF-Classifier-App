@@ -57,13 +57,13 @@ import com.iwbfclassifier.ui.LocalAppContainer
 import com.iwbfclassifier.ui.components.ClassSelector
 import com.iwbfclassifier.ui.components.ClassTarget
 import com.iwbfclassifier.ui.components.EmptyState
+import com.iwbfclassifier.ui.components.KeyMomentsDialog
 import com.iwbfclassifier.ui.components.NoteCanvasPanel
 import com.iwbfclassifier.ui.components.ObservationTopBar
 import com.iwbfclassifier.ui.components.PlayerChip
 import com.iwbfclassifier.ui.components.PrimaryButton
 import com.iwbfclassifier.ui.components.SecondaryButton
 import com.iwbfclassifier.ui.components.SectionLabel
-import com.iwbfclassifier.ui.components.VideoEvidenceSection
 import com.iwbfclassifier.ui.components.YouTubePlayerController
 import com.iwbfclassifier.ui.components.YouTubePlayerPanel
 import com.iwbfclassifier.ui.theme.AppColors
@@ -150,6 +150,7 @@ fun ObservationScreen(
 
     var selectedPlayerId by remember { mutableStateOf<String?>(null) }
     var target by remember { mutableStateOf(ClassTarget.MyOpinion) }
+    var showMoments by remember { mutableStateOf(false) }
 
     val selectedPlayer = players.firstOrNull { it.id == selectedPlayerId }
     // Teams come from the chosen game; fall back to the first two active teams.
@@ -161,11 +162,11 @@ fun ObservationScreen(
     val videoId = game?.youtube?.videoId ?: extractYoutubeId(game?.youtube?.url)
     LaunchedEffect(videoId) { if (videoId != null) controller.load(videoId) }
 
-    // Resizable video panel height.
+    // Resizable video panel height (drag the divider or use − / +).
     val density = LocalDensity.current
-    var videoHeight by remember { mutableStateOf(220.dp) }
+    var videoHeight by remember { mutableStateOf(260.dp) }
     fun changeHeight(deltaPx: Float) {
-        videoHeight = with(density) { (videoHeight.toPx() + deltaPx).toDp() }.coerceIn(120.dp, 560.dp)
+        videoHeight = with(density) { (videoHeight.toPx() + deltaPx).toDp() }.coerceIn(140.dp, 700.dp)
     }
 
     // Handwritten notes, loaded per player and autosaved.
@@ -244,6 +245,8 @@ fun ObservationScreen(
                 onResize = { delta -> changeHeight(delta) },
                 onAddMoment = onAddMoment,
                 canAddMoment = selectedPlayer != null,
+                momentCount = selectedPlayer?.videoEvidence?.size ?: 0,
+                onOpenMoments = { showMoments = true },
             )
         }
 
@@ -263,10 +266,9 @@ fun ObservationScreen(
                         onUndo = onUndo,
                         onRedo = onRedo,
                         onClear = onClear,
-                        onAddVideo = { ev -> selectedPlayer?.let { vm.addVideo(it, ev) } },
-                        onRemoveVideo = { ev -> selectedPlayer?.let { vm.removeVideo(it, ev) } },
-                        onReplayVideo = if (videoId != null) onReplay else null,
-                        showAddVideoButton = videoId == null,
+                        onOpenMoments = { showMoments = true },
+                        momentCount = selectedPlayer?.videoEvidence?.size ?: 0,
+                        showMomentsButton = videoId == null,
                         modifier = Modifier.fillMaxWidth().weight(0.6f),
                     )
                     Row(Modifier.fillMaxWidth().weight(0.4f)) {
@@ -290,16 +292,26 @@ fun ObservationScreen(
                         onUndo = onUndo,
                         onRedo = onRedo,
                         onClear = onClear,
-                        onAddVideo = { ev -> selectedPlayer?.let { vm.addVideo(it, ev) } },
-                        onRemoveVideo = { ev -> selectedPlayer?.let { vm.removeVideo(it, ev) } },
-                        onReplayVideo = if (videoId != null) onReplay else null,
-                        showAddVideoButton = videoId == null,
+                        onOpenMoments = { showMoments = true },
+                        momentCount = selectedPlayer?.videoEvidence?.size ?: 0,
+                        showMomentsButton = videoId == null,
                         modifier = Modifier.weight(0.52f).fillMaxHeight(),
                     )
                     PlayerRail(teamB, players, selectedPlayerId, ::selectPlayer, Modifier.weight(0.24f).fillMaxHeight())
                 }
             }
         }
+    }
+
+    if (showMoments && selectedPlayer != null) {
+        val player = selectedPlayer
+        KeyMomentsDialog(
+            evidence = player.videoEvidence,
+            onReplay = if (videoId != null) onReplay else null,
+            onRemove = { ev -> vm.removeVideo(player, ev) },
+            onAdd = { ev -> vm.addVideo(player, ev) },
+            onDismiss = { showMoments = false },
+        )
     }
 }
 
@@ -310,6 +322,8 @@ private fun ObservationVideoBand(
     onResize: (Float) -> Unit,
     onAddMoment: () -> Unit,
     canAddMoment: Boolean,
+    momentCount: Int,
+    onOpenMoments: () -> Unit,
 ) {
     val density = LocalDensity.current
     val stepPx = with(density) { 72.dp.toPx() }
@@ -318,6 +332,17 @@ private fun ObservationVideoBand(
             controller = controller,
             modifier = Modifier.fillMaxWidth().height(videoHeight),
         )
+        // Drag this divider (or use − / +) to resize the video so it fills its area.
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(22.dp)
+                .background(AppColors.PanelBlack)
+                .pointerInput(Unit) { detectVerticalDragGestures { _, delta -> onResize(delta) } },
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(Modifier.size(width = 64.dp, height = 5.dp).clip(AppShapes.button).background(AppColors.Gold))
+        }
         Row(
             Modifier.fillMaxWidth().padding(horizontal = AppSpacing.md, vertical = AppSpacing.sm),
             verticalAlignment = Alignment.CenterVertically,
@@ -329,18 +354,9 @@ private fun ObservationVideoBand(
                 enabled = canAddMoment,
                 modifier = Modifier.weight(1f),
             )
+            SecondaryButton("Moments ($momentCount)", onClick = onOpenMoments)
             SizeStepButton("−") { onResize(-stepPx) }
             SizeStepButton("+") { onResize(stepPx) }
-        }
-        // Drag the handle to resize the video; also adjustable with − / + above.
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(20.dp)
-                .pointerInput(Unit) { detectVerticalDragGestures { _, delta -> onResize(delta) } },
-            contentAlignment = Alignment.Center,
-        ) {
-            Box(Modifier.size(width = 56.dp, height = 4.dp).clip(AppShapes.button).background(AppColors.DividerGray))
         }
     }
 }
@@ -374,10 +390,9 @@ private fun ObservationWorkArea(
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onClear: () -> Unit,
-    onAddVideo: (VideoEvidence) -> Unit,
-    onRemoveVideo: (VideoEvidence) -> Unit,
-    onReplayVideo: ((VideoEvidence) -> Unit)?,
-    showAddVideoButton: Boolean,
+    onOpenMoments: () -> Unit,
+    momentCount: Int,
+    showMomentsButton: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -387,7 +402,13 @@ private fun ObservationWorkArea(
         if (player == null) {
             EmptyState("Select a player", "Tap a player chip to start observing.")
         } else {
-            PlayerHeader(player = player, onEditDetails = { onOpenPlayer(player.id) })
+            PlayerHeader(
+                player = player,
+                onEditDetails = { onOpenPlayer(player.id) },
+                showMoments = showMomentsButton,
+                momentCount = momentCount,
+                onOpenMoments = onOpenMoments,
+            )
             ClassSelector(
                 target = target,
                 onTargetChange = onTargetChange,
@@ -398,13 +419,6 @@ private fun ObservationWorkArea(
                 },
                 onSelectClass = onSelectClass,
                 modifier = Modifier.fillMaxWidth(),
-            )
-            VideoEvidenceSection(
-                evidence = player.videoEvidence,
-                onAdd = onAddVideo,
-                onRemove = onRemoveVideo,
-                onReplay = onReplayVideo,
-                showAddButton = showAddVideoButton,
             )
             NoteCanvasPanel(
                 strokes = strokes,
@@ -447,11 +461,17 @@ private fun PlayerRail(
             verticalArrangement = Arrangement.spacedBy(AppSpacing.xs),
         ) {
             items(teamPlayers, key = { it.id }) { player ->
-                // Rails show number + name only; the class shows in the header above (user request).
+                // Chip shows number + full name + current class + class status (user request).
+                val current = player.finalSportClass ?: player.myOpinionSportClass
+                    ?: player.startingSportClass ?: player.importedSportClass
+                val classText = listOfNotNull(
+                    current?.let { "Class ${it.code}" },
+                    player.sportClassStatus?.code,
+                ).joinToString(" · ").ifBlank { null }
                 PlayerChip(
                     number = player.uniformNumber,
                     name = player.name,
-                    classText = null,
+                    classText = classText,
                     status = player.observationStatus,
                     selected = player.id == selectedPlayerId,
                     onClick = { onSelect(player.id) },
@@ -462,8 +482,18 @@ private fun PlayerRail(
 }
 
 @Composable
-private fun PlayerHeader(player: Player, onEditDetails: () -> Unit) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+private fun PlayerHeader(
+    player: Player,
+    onEditDetails: () -> Unit,
+    showMoments: Boolean,
+    momentCount: Int,
+    onOpenMoments: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm),
+    ) {
         Column(Modifier.weight(1f)) {
             Text(
                 listOfNotNull(player.uniformNumber?.let { "#$it" }, (player.name ?: "Unknown")).joinToString(" "),
@@ -471,7 +501,6 @@ private fun PlayerHeader(player: Player, onEditDetails: () -> Unit) {
                 color = AppColors.TextPrimary,
             )
             val summary = buildList {
-                player.importedSportClass?.let { add("Imported ${it.code}") }
                 player.startingSportClass?.let { add("Initial ${it.code}") }
                 player.myOpinionSportClass?.let { add("Opinion ${it.code}") }
                 player.finalSportClass?.let { add("Final ${it.code}") }
@@ -480,6 +509,7 @@ private fun PlayerHeader(player: Player, onEditDetails: () -> Unit) {
                 Text(summary, style = AppTypography.microLabel, color = AppColors.Gold)
             }
         }
+        if (showMoments) SecondaryButton("Moments ($momentCount)", onClick = onOpenMoments)
         SecondaryButton("Edit details", onClick = onEditDetails)
     }
 }

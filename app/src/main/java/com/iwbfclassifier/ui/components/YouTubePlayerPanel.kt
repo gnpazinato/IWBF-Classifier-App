@@ -1,6 +1,10 @@
 package com.iwbfclassifier.ui.components
 
 import android.annotation.SuppressLint
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.view.View
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
@@ -12,11 +16,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 
 /**
  * Controls an embedded YouTube IFrame player. The key capability for the classifier
- * workflow (docs/06): [currentSeconds] reads the player's live position so "Flag
- * Moment" is one tap, and [playWindow] replays a slow-motion window in-app.
- *
- * All JS calls are marshalled onto the WebView's UI thread; reads are served from a
- * value the page pushes back ~4x/second, so they are cheap and synchronous.
+ * workflow (docs/06): [currentSeconds] reads the player's live position so "Add Moment"
+ * is one tap, and [playWindow] replays a slow-motion window in-app.
  */
 class YouTubePlayerController {
     internal var webView: WebView? = null
@@ -42,7 +43,7 @@ class YouTubePlayerController {
         if (videoId.isNullOrBlank()) return
         if (isReady) {
             loadedVideoId = videoId
-            js("player.cueVideoById({videoId:'$videoId', startSeconds:$startSeconds});")
+            js("cue('$videoId', $startSeconds);")
         } else {
             pendingVideoId = videoId
             pendingStart = startSeconds
@@ -61,7 +62,7 @@ class YouTubePlayerController {
         isReady = true
         pendingVideoId?.let { v ->
             loadedVideoId = v
-            js("player.cueVideoById({videoId:'$v', startSeconds:$pendingStart});")
+            js("cue('$v', $pendingStart);")
             pendingVideoId = null
         }
     }
@@ -76,18 +77,36 @@ class YouTubePlayerController {
     }
 }
 
-private class YouTubeJsBridge(private val controller: YouTubePlayerController) {
+private class YouTubeJsBridge(
+    private val controller: YouTubePlayerController,
+    private val appContext: Context,
+) {
     @JavascriptInterface
     fun onReady() = controller.onReadyInternal()
 
     @JavascriptInterface
     fun onTime(seconds: Double) = controller.onTimeInternal(seconds)
+
+    /** Open the current video in the YouTube app / browser (fallback when embed is blocked). */
+    @JavascriptInterface
+    fun openInYouTube() {
+        val id = controller.loadedVideoId ?: return
+        val url = "https://www.youtube.com/watch?v=$id"
+        controller.webView?.post {
+            runCatching {
+                appContext.startActivity(
+                    Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }
+        }
+    }
 }
 
 /**
  * Embedded YouTube player surface. Renders a WebView hosting the official IFrame
- * Player API — no video is downloaded (docs/06), only streamed/embedded. Drive it
- * through [controller].
+ * Player API — no video is downloaded (docs/06), only streamed/embedded. The page
+ * forces the player to fill the whole surface (no inner scrolling) and shows a
+ * "this video can't be embedded → Open in YouTube" fallback on embed errors.
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -104,6 +123,9 @@ fun YouTubePlayerPanel(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                 )
                 setBackgroundColor(android.graphics.Color.BLACK)
+                isVerticalScrollBarEnabled = false
+                isHorizontalScrollBarEnabled = false
+                overScrollMode = View.OVER_SCROLL_NEVER
                 with(settings) {
                     javaScriptEnabled = true
                     domStorageEnabled = true
@@ -113,7 +135,7 @@ fun YouTubePlayerPanel(
                 }
                 webChromeClient = WebChromeClient()
                 webViewClient = WebViewClient()
-                addJavascriptInterface(YouTubeJsBridge(controller), "Android")
+                addJavascriptInterface(YouTubeJsBridge(controller, ctx.applicationContext), "Android")
                 controller.webView = this
                 loadDataWithBaseURL("https://www.youtube.com", PLAYER_HTML, "text/html", "utf-8", null)
             }
@@ -130,20 +152,43 @@ private const val PLAYER_HTML = """
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<style>html,body{margin:0;padding:0;background:#000;height:100%;overflow:hidden}#player{width:100%;height:100%}</style>
+<style>
+  html,body{margin:0;padding:0;background:#000;height:100%;width:100%;overflow:hidden}
+  body{position:relative}
+  #player,iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
+  #err{display:none;position:absolute;top:0;left:0;right:0;bottom:0;background:#0E0E0E;color:#fff;
+       flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:16px;
+       font-family:sans-serif}
+  #err p{margin:0 0 14px;font-size:15px;color:#D7D7D7}
+  #err button{background:#A3975D;color:#0E0E0E;border:0;border-radius:10px;padding:12px 20px;
+       font-size:15px;font-weight:bold}
+</style>
 </head>
 <body>
 <div id="player"></div>
+<div id="err"><p id="errmsg">This video can't be played here.</p>
+  <button onclick="Android.openInYouTube()">Open in YouTube</button></div>
 <script src="https://www.youtube.com/iframe_api"></script>
 <script>
 var player = null;
 var endTime = -1;
+function showErr(msg){ document.getElementById('errmsg').textContent = msg;
+  document.getElementById('err').style.display='flex'; }
+function hideErr(){ document.getElementById('err').style.display='none'; }
 function onYouTubeIframeAPIReady() {
   player = new YT.Player('player', {
     width: '100%', height: '100%',
     playerVars: { playsinline: 1, rel: 0, modestbranding: 1, controls: 1, fs: 1 },
     events: {
-      'onReady': function() { if (window.Android && Android.onReady) Android.onReady(); }
+      'onReady': function() { if (window.Android && Android.onReady) Android.onReady(); },
+      'onStateChange': function(e) { if (e.data == 1 || e.data == 3) hideErr(); },
+      'onError': function(e) {
+        var c = e.data;
+        var msg = (c == 101 || c == 150) ? "The owner doesn't allow this video to be embedded."
+          : (c == 100) ? "This video is unavailable."
+          : "This video can't be played here.";
+        showErr(msg);
+      }
     }
   });
   setInterval(function() {
@@ -156,6 +201,7 @@ function onYouTubeIframeAPIReady() {
     } catch (e) {}
   }, 250);
 }
+function cue(id, start) { if (!player) return; hideErr(); endTime = -1; player.cueVideoById({videoId: id, startSeconds: start}); }
 function playWindow(start, end, rate) {
   if (!player) return;
   endTime = end;

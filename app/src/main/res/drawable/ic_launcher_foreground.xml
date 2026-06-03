@@ -1,42 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Flat, modern basketball matching the app's dark/charcoal/gold language (user request).
-     Gold ball with charcoal seams, centered in the adaptive-icon safe zone (r=33 @ 54,54). -->
+<!-- Orange basketball with thick black outline + seams, reproducing the reference
+     flat-icon style (user request). Centered in the adaptive safe zone (r=34 @ 54,54). -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Ball (flat gold) -->
+    <!-- Ball (orange) -->
     <path
-        android:fillColor="#A3975D"
-        android:pathData="M21,54 a33,33 0 1,0 66,0 a33,33 0 1,0 -66,0" />
+        android:fillColor="#DE6F3C"
+        android:pathData="M20,54 a34,34 0 1,0 68,0 a34,34 0 1,0 -68,0" />
 
-    <!-- Seams (charcoal) -->
+    <!-- Outline -->
+    <path
+        android:strokeColor="#141414"
+        android:strokeWidth="4"
+        android:fillColor="#00000000"
+        android:pathData="M20,54 a34,34 0 1,0 68,0 a34,34 0 1,0 -68,0" />
+
+    <!-- Seams -->
     <group>
-        <path
-            android:strokeColor="#0E0E0E"
-            android:strokeWidth="3.5"
-            android:strokeLineCap="round"
-            android:fillColor="#00000000"
-            android:pathData="M54,21 L54,87" />
-        <path
-            android:strokeColor="#0E0E0E"
-            android:strokeWidth="3.5"
-            android:strokeLineCap="round"
-            android:fillColor="#00000000"
-            android:pathData="M21,54 L87,54" />
-        <path
-            android:strokeColor="#0E0E0E"
-            android:strokeWidth="3.5"
-            android:strokeLineCap="round"
-            android:fillColor="#00000000"
-            android:pathData="M54,21 C34,37 34,71 54,87" />
-        <path
-            android:strokeColor="#0E0E0E"
-            android:strokeWidth="3.5"
-            android:strokeLineCap="round"
-            android:fillColor="#00000000"
-            android:pathData="M54,21 C74,37 74,71 54,87" />
+        <path android:strokeColor="#141414" android:strokeWidth="3.5" android:strokeLineCap="round"
+            android:fillColor="#00000000" android:pathData="M54,20 L54,88" />
+        <path android:strokeColor="#141414" android:strokeWidth="3.5" android:strokeLineCap="round"
+            android:fillColor="#00000000" android:pathData="M20,54 L88,54" />
+        <path android:strokeColor="#141414" android:strokeWidth="3.5" android:strokeLineCap="round"
+            android:fillColor="#00000000" android:pathData="M54,20 C31,38 31,70 54,88" />
+        <path android:strokeColor="#141414" android:strokeWidth="3.5" android:strokeLineCap="round"
+            android:fillColor="#00000000" android:pathData="M54,20 C77,38 77,70 54,88" />
     </group>
 </vector>

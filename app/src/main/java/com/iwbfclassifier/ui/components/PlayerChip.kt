@@ -4,8 +4,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -55,7 +57,7 @@ fun PlayerChip(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = 46.dp)
+            .heightIn(min = 52.dp)
             .clip(AppShapes.chip)
             .background(if (selected) AppColors.GoldSoft else AppColors.CardCharcoal)
             .border(if (selected) 1.5.dp else 1.dp, if (selected) AppColors.Gold else AppColors.DividerGray, AppShapes.chip)
@@ -64,26 +66,29 @@ fun PlayerChip(
             .padding(vertical = AppSpacing.xs),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.width(4.dp).height(32.dp).background(observationStatusColor(status)))
+        Box(Modifier.width(4.dp).fillMaxHeight().background(observationStatusColor(status)))
         Spacer(Modifier.width(AppSpacing.sm))
-        Text(
-            text = number?.let { "#$it" } ?: "#–",
-            style = AppTypography.chip,
-            color = AppColors.TextPrimary,
-            fontWeight = FontWeight.Bold,
-        )
-        Spacer(Modifier.width(AppSpacing.sm))
-        Text(
-            text = (name ?: "Unknown").uppercase(),
-            style = AppTypography.chip,
-            color = AppColors.TextPrimary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        if (!classText.isNullOrBlank()) {
-            Spacer(Modifier.width(AppSpacing.sm))
-            Text(classText, style = AppTypography.microLabel, color = AppColors.Gold)
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = number?.let { "#$it" } ?: "#–",
+                    style = AppTypography.chip,
+                    color = AppColors.TextPrimary,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(Modifier.width(AppSpacing.sm))
+                Text(
+                    text = (name ?: "Unknown").uppercase(),
+                    style = AppTypography.chip,
+                    color = AppColors.TextPrimary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            if (!classText.isNullOrBlank()) {
+                Text(classText, style = AppTypography.microLabel, color = AppColors.Gold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
         Spacer(Modifier.width(AppSpacing.sm))
     }

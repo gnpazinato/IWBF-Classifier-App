@@ -47,7 +47,6 @@ import com.iwbfclassifier.ui.LocalAppContainer
 import com.iwbfclassifier.ui.components.AppTextField
 import com.iwbfclassifier.ui.components.AppTopBar
 import com.iwbfclassifier.ui.components.ConfirmDialog
-import com.iwbfclassifier.ui.components.DateField
 import com.iwbfclassifier.ui.components.DestructiveButton
 import com.iwbfclassifier.ui.components.EmptyState
 import com.iwbfclassifier.ui.components.PrimaryButton
@@ -192,14 +191,14 @@ fun CompetitionDetailScreen(
             }
             item {
                 SecondaryButton(
-                    "Players Overview (quick edit)",
+                    "Players Overview",
                     onClick = onOpenOverview,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
             item {
                 SecondaryButton(
-                    "Import Roster (Spreadsheet Template / ZIP / Word / Excel / PDF)",
+                    "Upload Excel template file",
                     onClick = onOpenImport,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -428,9 +427,6 @@ private fun EditCompetitionDialog(
     onDelete: () -> Unit,
 ) {
     var name by remember { mutableStateOf(competition.name) }
-    var location by remember { mutableStateOf(competition.location.orEmpty()) }
-    var startDate by remember { mutableStateOf(competition.startDate.orEmpty()) }
-    var endDate by remember { mutableStateOf(competition.endDate.orEmpty()) }
     var confirmDelete by remember { mutableStateOf(false) }
 
     AlertDialog(
@@ -439,26 +435,14 @@ private fun EditCompetitionDialog(
         title = { Text("Edit Competition", color = AppColors.TextPrimary) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
-                AppTextField(name, { name = it }, "Name")
-                AppTextField(location, { location = it }, "Location")
-                DateField("Start Date", startDate.ifBlank { null }, { startDate = it.orEmpty() })
-                DateField("End Date", endDate.ifBlank { null }, { endDate = it.orEmpty() })
+                AppTextField(name, { name = it }, "Competition name")
                 Spacer(Modifier.width(AppSpacing.sm))
                 DestructiveButton("Delete Competition", onClick = { confirmDelete = true }, modifier = Modifier.fillMaxWidth())
             }
         },
         confirmButton = {
             TextButton(
-                onClick = {
-                    onSave(
-                        competition.copy(
-                            name = name.ifBlank { competition.name },
-                            location = location.ifBlank { null },
-                            startDate = startDate.ifBlank { null },
-                            endDate = endDate.ifBlank { null },
-                        ),
-                    )
-                },
+                onClick = { onSave(competition.copy(name = name.ifBlank { competition.name })) },
             ) { Text("Save", color = AppColors.Gold) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = AppColors.TextSecondary) } },

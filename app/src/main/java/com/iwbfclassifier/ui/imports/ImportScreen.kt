@@ -50,29 +50,17 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private val IMPORT_MIME_TYPES = arrayOf(
-    "application/zip",
-    "application/x-zip-compressed",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // .xlsx
-    "text/csv",
-    "text/comma-separated-values",
-    "application/pdf",
-    "application/octet-stream",
-)
+private const val XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+private val IMPORT_MIME_TYPES = arrayOf(XLSX_MIME, "application/octet-stream")
 
 /**
- * Official single-sheet roster template (user request). Filling this in and importing
- * it gives a clean roster — no coaching staff, no misread jersey numbers. Columns are
- * matched by header name, so order can change and extra example rows can be deleted.
+ * Official single-sheet Excel template (user request). Filling it in and uploading it
+ * gives a clean roster — no coaching staff, no misread jersey numbers. Columns are
+ * matched by header name: team, number, initial_class, class_status, full_name.
  */
-private const val TEMPLATE_FILE_NAME = "iwbf_roster_template.csv"
-private const val TEMPLATE_CSV =
-    "team,number,initial_class,class_status,full_name\n" +
-        "Argentina,4,1.0,C,\"VINCI, Sarah\"\n" +
-        "Argentina,7,3.5,N,\"GOMEZ, Maria\"\n" +
-        "Australia,5,2.0,R,\"SMITH, Jane\"\n" +
-        "Australia,11,4.0,C,\"BROWN, Emily\"\n"
+private const val TEMPLATE_ASSET = "roster_template.xlsx"
+private const val TEMPLATE_FILE_NAME = "iwbf_roster_template.xlsx"
 
 /**
  * Roster import: pick a ZIP/Word/Excel/PDF, review what was detected, then create
@@ -97,12 +85,14 @@ fun ImportScreen(
     var competitionName by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
 
-    val templateSaver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri: Uri? ->
+    val templateSaver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(XLSX_MIME)) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
-                    context.contentResolver.openOutputStream(uri)?.use { it.write(TEMPLATE_CSV.toByteArray()) }
+                    context.assets.open(TEMPLATE_ASSET).use { input ->
+                        context.contentResolver.openOutputStream(uri)?.use { output -> input.copyTo(output) }
+                    }
                 }
             }.onFailure { error = it.message ?: "Could not save the template." }
         }
@@ -134,7 +124,7 @@ fun ImportScreen(
     }
 
     Column(Modifier.fillMaxSize().background(AppColors.InkBlack)) {
-        AppTopBar(title = "Import Roster", onBack = onBack)
+        AppTopBar(title = "Upload Players", onBack = onBack)
 
         val current = roster
         when {
@@ -182,15 +172,14 @@ private fun PickPrompt(error: String?, onDownloadTemplate: () -> Unit, onPick: (
         verticalArrangement = Arrangement.Center,
     ) {
         EmptyState(
-            "Import a roster",
-            "Best results: download the spreadsheet template, fill one row per athlete " +
-                "(team, number, initial_class, class_status, full_name) and import it back. " +
-                "You can also import a ZIP/Word/Excel/PDF, but unstandardised files may misread numbers or pull staff.",
+            "Upload players",
+            "Download the Excel template, fill one row per athlete " +
+                "(team, number, initial_class, class_status, full_name), then upload it to load the players.",
         )
         Spacer(Modifier.height(AppSpacing.md))
-        SecondaryButton("Download Template (.csv)", onClick = onDownloadTemplate, modifier = Modifier.fillMaxWidth())
+        SecondaryButton("Download Excel Template", onClick = onDownloadTemplate, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(AppSpacing.md))
-        PrimaryButton("Choose File", onClick = onPick, modifier = Modifier.fillMaxWidth())
+        PrimaryButton("Upload Excel template file", onClick = onPick, modifier = Modifier.fillMaxWidth())
         if (error != null) {
             Spacer(Modifier.height(AppSpacing.md))
             Text(error, style = AppTypography.body, color = AppColors.AlertRed)
@@ -274,7 +263,7 @@ private fun ReviewContent(
 
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpacing.md)) {
-                SecondaryButton("Choose Another File", onClick = onChooseAnother, modifier = Modifier.weight(1f))
+                SecondaryButton("Upload Another File", onClick = onChooseAnother, modifier = Modifier.weight(1f))
                 PrimaryButton(
                     if (importing) "Importing…" else "Import $includedPlayers Players",
                     onClick = onImport,

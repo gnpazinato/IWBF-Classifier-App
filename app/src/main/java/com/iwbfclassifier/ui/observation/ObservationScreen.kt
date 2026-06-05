@@ -54,6 +54,7 @@ import com.iwbfclassifier.data.model.SportClassStatus
 import com.iwbfclassifier.data.model.Team
 import com.iwbfclassifier.data.model.VideoEvidence
 import com.iwbfclassifier.data.model.displayName
+import com.iwbfclassifier.data.model.teamComparator
 import com.iwbfclassifier.data.repository.CompetitionRepository
 import com.iwbfclassifier.ui.LocalAppContainer
 import com.iwbfclassifier.ui.components.CaptureMomentDialog
@@ -90,8 +91,8 @@ class ObservationViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), repo.competitions.value.firstOrNull { it.id == competitionId })
 
     val teams = repo.teams
-        .map { list -> list.filter { it.competitionId == competitionId && it.active } }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), repo.teams.value.filter { it.competitionId == competitionId && it.active })
+        .map { list -> list.filter { it.competitionId == competitionId && it.active }.sortedWith(teamComparator) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), repo.teams.value.filter { it.competitionId == competitionId && it.active }.sortedWith(teamComparator))
 
     val players = repo.players
         .map { list -> list.filter { it.competitionId == competitionId && it.active } }

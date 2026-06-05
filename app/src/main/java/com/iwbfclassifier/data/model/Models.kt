@@ -29,6 +29,23 @@ data class Team(
 /** Team name with its W/M gender suffix for display, e.g. "Argentina W". */
 fun Team.displayName(): String = if (gender.isNullOrBlank()) name else "$name $gender"
 
+/**
+ * Alphabetical ordering for the team LISTS shown to the user (user request: teams A→Z,
+ * not spreadsheet order — players stay ordered by jersey number, untouched). pt-BR,
+ * case-insensitive and accent-aware (SECONDARY strength: 'a' == 'A', 'a' != 'á'). Sorts by
+ * the raw [Team.name] so same-country squads group together, with gender (W/M) as tiebreak.
+ */
+val teamCollator: java.text.Collator =
+    java.text.Collator.getInstance(java.util.Locale("pt", "BR")).apply {
+        strength = java.text.Collator.SECONDARY
+    }
+
+val teamComparator: Comparator<Team> =
+    Comparator { a, b ->
+        val byName = teamCollator.compare(a.name, b.name)
+        if (byName != 0) byName else compareValues(a.gender, b.gender)
+    }
+
 @Serializable
 data class Player(
     val id: String,

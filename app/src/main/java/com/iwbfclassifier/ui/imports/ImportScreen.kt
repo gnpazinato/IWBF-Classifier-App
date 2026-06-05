@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import com.iwbfclassifier.core.importer.ParsedRoster
 import com.iwbfclassifier.core.importer.ParsedTeam
 import com.iwbfclassifier.core.importer.RosterParser
+import com.iwbfclassifier.data.model.teamCollator
 import com.iwbfclassifier.ui.LocalAppContainer
 import com.iwbfclassifier.ui.components.AppTextField
 import com.iwbfclassifier.ui.components.AppTopBar
@@ -114,7 +115,18 @@ fun ImportScreen(
             }
             parsing = false
             result.onSuccess { (name, parsed) ->
-                roster = parsed
+                // Show teams alphabetically (user request), not in spreadsheet order. Sort the
+                // BACKING list once here — the preview's include/exclude is index-based
+                // (`excluded: Set<Int>` + filterIndexed), and `excluded` resets just below, so
+                // sorting the source keeps indices aligned. Players stay in their parsed order.
+                roster = parsed.copy(
+                    teams = parsed.teams.sortedWith(
+                        Comparator { a, b ->
+                            val byName = teamCollator.compare(a.name, b.name)
+                            if (byName != 0) byName else compareValues(a.gender, b.gender)
+                        },
+                    ),
+                )
                 excluded = emptySet()
                 if (competitionId == null && competitionName.isBlank()) {
                     competitionName = name.substringBeforeLast('.').substringBefore(" - ").trim()

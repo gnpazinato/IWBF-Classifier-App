@@ -55,6 +55,7 @@ import com.iwbfclassifier.data.model.SportClassStatus
 import com.iwbfclassifier.data.model.Team
 import com.iwbfclassifier.data.model.YoutubeInfo
 import com.iwbfclassifier.data.model.displayName
+import com.iwbfclassifier.data.model.teamComparator
 import com.iwbfclassifier.data.repository.CompetitionRepository
 import com.iwbfclassifier.ui.LocalAppContainer
 import com.iwbfclassifier.ui.components.AppTextField
@@ -92,11 +93,11 @@ class CompetitionDetailViewModel(
         )
 
     val teams = repo.teams
-        .map { list -> list.filter { it.competitionId == competitionId } }
+        .map { list -> list.filter { it.competitionId == competitionId }.sortedWith(teamComparator) }
         .stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5_000),
-            repo.teams.value.filter { it.competitionId == competitionId },
+            repo.teams.value.filter { it.competitionId == competitionId }.sortedWith(teamComparator),
         )
 
     val players = repo.players

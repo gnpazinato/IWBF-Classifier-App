@@ -3,8 +3,13 @@ name: Android CI
 on:
   push:
     branches: [ main ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # needed to create a Release on tag builds
 
 jobs:
   build:
@@ -27,6 +32,27 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
+      # Decrypt the stable signing key (committed AES-256 encrypted at signing/) using the
+      # SIGNING_PASSPHRASE secret. Without the secret, the build falls back to the default
+      # debug key (signature not stable, updates may not install over).
+      - name: Restore signing key
+        env:
+          SIGNING_PASSPHRASE: ${{ secrets.SIGNING_PASSPHRASE }}
+        run: |
+          if [ -n "$SIGNING_PASSPHRASE" ]; then
+            openssl enc -d -aes-256-cbc -pbkdf2 \
+              -in signing/release-keystore.jks.enc \
+              -out "$RUNNER_TEMP/app-signing.jks" \
+              -pass pass:"$SIGNING_PASSPHRASE"
+            echo "SIGNING_STORE_FILE=$RUNNER_TEMP/app-signing.jks" >> "$GITHUB_ENV"
+            echo "SIGNING_STORE_PASSWORD=$SIGNING_PASSPHRASE" >> "$GITHUB_ENV"
+            echo "SIGNING_KEY_ALIAS=iwbf" >> "$GITHUB_ENV"
+            echo "SIGNING_KEY_PASSWORD=$SIGNING_PASSPHRASE" >> "$GITHUB_ENV"
+            echo "Signing key restored — build will use the stable key."
+          else
+            echo "::warning::No SIGNING_PASSPHRASE secret; building with the default debug key (updates may not install over)."
+          fi
+
       - name: Build debug APK
         run: ./gradlew assembleDebug --stacktrace
 
@@ -36,3 +62,20 @@ jobs:
           name: iwbf-classifier-app-debug
           path: app/build/outputs/apk/debug/iwbf-classifier-app-*.apk
           if-no-files-found: error
+
+      # On a vX.Y.Z tag, publish the signed APK as a GitHub Release for easy tablet download.
+      # Never publishes an unsigned (debug-key) build, and never overwrites an existing one.
+      - name: Publish Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -z "$SIGNING_STORE_FILE" ]; then
+            echo "::warning::No signing key set — skipping release (would be debug-signed and could not install over previous versions)."
+            exit 0
+          fi
+          gh release create "${GITHUB_REF_NAME}" \
+            app/build/outputs/apk/debug/iwbf-classifier-app-*.apk \
+            --title "IWBF Classifier App ${GITHUB_REF_NAME}" \
+            --generate-notes \
+            || echo "Release ${GITHUB_REF_NAME} already exists — leaving its assets untouched."

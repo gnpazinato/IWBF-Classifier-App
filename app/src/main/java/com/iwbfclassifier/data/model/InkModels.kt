@@ -27,4 +27,9 @@ data class NotePage(
     val playerId: String,
     val strokes: List<InkStroke> = emptyList(),
     val updatedAt: String = "",
+    // Aspect ratio (width / height) of the canvas the strokes were drawn on. Because the
+    // observation note canvas resizes with the video panel, storing the ratio lets the
+    // notes be re-rendered faithfully (no stretching) anywhere, e.g. the Edit Player
+    // screen (user request). Null for notes saved before this was tracked.
+    val aspectRatio: Float? = null,
 )

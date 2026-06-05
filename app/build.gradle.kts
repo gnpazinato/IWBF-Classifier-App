@@ -8,8 +8,8 @@ plugins {
 }
 
 // Bump on every adjustment; bump the major (first number) for significant changes.
-val appVersionName = "1.4.3"
-val appVersionCode = 9
+val appVersionName = "1.5.0"
+val appVersionCode = 10
 
 android {
     namespace = "com.iwbfclassifier"
@@ -26,13 +26,34 @@ android {
         // S Pen tablet target; supports portrait + landscape.
     }
 
+    // Stable app signing key. The key itself is NEVER in the repo — CI restores it from
+    // GitHub secrets (see .github/workflows/android.yml) and exposes its path via env.
+    // Every signed build is identical, so a new version installs OVER the previous one and
+    // a classifier's data/notes are never wiped on update. Without the key (plain local
+    // dev), builds fall back to the default debug keystore.
+    val signingStore = System.getenv("SIGNING_STORE_FILE")?.let { file(it) }?.takeIf { it.exists() }
+    signingConfigs {
+        create("app") {
+            if (signingStore != null) {
+                storeFile = signingStore
+                storePassword = System.getenv("SIGNING_STORE_PASSWORD")
+                keyAlias = System.getenv("SIGNING_KEY_ALIAS")
+                keyPassword = System.getenv("SIGNING_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
+        getByName("debug") {
+            if (signingStore != null) signingConfig = signingConfigs.getByName("app")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            if (signingStore != null) signingConfig = signingConfigs.getByName("app")
         }
     }
 

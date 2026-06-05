@@ -63,6 +63,7 @@ class CompetitionListViewModel(private val repo: CompetitionRepository) : ViewMo
 fun CompetitionListScreen(
     onOpenCompetition: (String) -> Unit,
     onImport: () -> Unit,
+    onOpenBackup: () -> Unit,
 ) {
     val container = LocalAppContainer.current
     val vm: CompetitionListViewModel = viewModel(
@@ -77,6 +78,10 @@ fun CompetitionListScreen(
         AppTopBar(
             title = "IWBF Classifier App",
             subtitle = "Wheelchair Basketball Observation",
+            actions = {
+                SecondaryButton("Backup", onClick = onOpenBackup)
+                Spacer(Modifier.width(AppSpacing.sm))
+            },
         )
 
         // Two primary entry points, always on the home screen (user request).

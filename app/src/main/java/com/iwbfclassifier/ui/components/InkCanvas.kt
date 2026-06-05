@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -38,6 +39,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import com.iwbfclassifier.data.model.InkPoint
 import com.iwbfclassifier.data.model.InkStroke
@@ -88,6 +90,7 @@ fun InkCanvas(
     onAddStroke: (InkStroke) -> Unit,
     onErase: (List<InkStroke>) -> Unit,
     modifier: Modifier = Modifier,
+    onCanvasSizeChanged: (Float) -> Unit = {},
 ) {
     val strokesState = rememberUpdatedState(strokes)
     val toolState = rememberUpdatedState(tool)
@@ -103,6 +106,8 @@ fun InkCanvas(
         modifier = modifier
             .fillMaxSize()
             .clipToBounds()
+            // Report the canvas shape so saved notes can be re-rendered faithfully elsewhere.
+            .onSizeChanged { if (it.height > 0) onCanvasSizeChanged(it.width.toFloat() / it.height.toFloat()) }
             .pointerInput(Unit) {
                 val scope = this
                 val eraserRadiusPx = ERASER_RADIUS_DP.dp.toPx()
@@ -256,6 +261,24 @@ private fun DrawScope.drawSmoothPath(pts: List<Offset>, color: Color, widthPx: F
 }
 
 /**
+ * Read-only render of a Player's saved handwritten notes on the same light paper surface
+ * used for writing — no input handling. Used to review notes outside the Observation
+ * screen (e.g. the Edit Player screen), so every stroke written with the S Pen shows up
+ * in the player record (user request).
+ */
+@Composable
+fun NotePreview(
+    strokes: List<InkStroke>,
+    modifier: Modifier = Modifier,
+) {
+    PaperNoteCanvasContainer(modifier = modifier) {
+        Canvas(Modifier.fillMaxSize()) {
+            strokes.forEach { drawInkStroke(it, size.width, size.height) }
+        }
+    }
+}
+
+/**
  * Paper note panel: icon-light toolbar + light paper surface with the ink canvas.
  * Strokes are owned by the caller so undo/redo and autosave reset per Player.
  */
@@ -270,6 +293,11 @@ fun NoteCanvasPanel(
     canUndo: Boolean,
     canRedo: Boolean,
     modifier: Modifier = Modifier,
+    onCanvasAspectRatio: (Float) -> Unit = {},
+    // When set, the canvas is laid out at this width/height ratio instead of filling the
+    // available height. Used on scrollable screens (e.g. Edit Player) so the writing area
+    // matches the shape the notes were saved at — keeping them faithful while editable.
+    noteAspectRatio: Float? = null,
 ) {
     var tool by remember { mutableStateOf(CanvasTool.PEN) }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
@@ -282,13 +310,19 @@ fun NoteCanvasPanel(
             canUndo = canUndo,
             canRedo = canRedo,
         )
-        PaperNoteCanvasContainer(modifier = Modifier.fillMaxWidth().weight(1f)) {
+        val canvasModifier = if (noteAspectRatio != null && noteAspectRatio > 0f) {
+            Modifier.fillMaxWidth().aspectRatio(noteAspectRatio)
+        } else {
+            Modifier.fillMaxWidth().weight(1f)
+        }
+        PaperNoteCanvasContainer(modifier = canvasModifier) {
             InkCanvas(
                 strokes = strokes,
                 tool = tool,
                 onAddStroke = onAddStroke,
                 onErase = onErase,
                 modifier = Modifier.fillMaxSize(),
+                onCanvasSizeChanged = onCanvasAspectRatio,
             )
         }
     }

@@ -8,6 +8,7 @@ object Routes {
     const val Observation = "competition/{competitionId}/observe"
     const val ImportNew = "import"
     const val ImportInto = "competition/{competitionId}/import"
+    const val Backup = "backup"
 
     const val ARG_COMPETITION_ID = "competitionId"
     const val ARG_TEAM_ID = "teamId"

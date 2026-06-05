@@ -13,14 +13,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.graphics.SolidColor
@@ -138,6 +142,12 @@ class CompetitionDetailViewModel(
         viewModelScope.launch { repo.deleteTeamPermanently(teamId) }
     }
 
+    fun addPlayer(teamId: String, number: String, name: String) {
+        viewModelScope.launch {
+            repo.createPlayer(competitionId, teamId, number.ifBlank { null }, name.ifBlank { null })
+        }
+    }
+
     fun updatePlayer(player: Player) {
         viewModelScope.launch { repo.updatePlayer(player) }
     }
@@ -158,7 +168,7 @@ class CompetitionDetailViewModel(
 fun CompetitionDetailScreen(
     competitionId: String,
     onBack: () -> Unit,
-    onOpenTeam: (String) -> Unit,
+    onOpenPlayer: (String) -> Unit,
     onOpenObservation: () -> Unit,
     onOpenImport: () -> Unit,
 ) {
@@ -176,7 +186,9 @@ fun CompetitionDetailScreen(
     var showAddTeam by remember { mutableStateOf(false) }
     var showEdit by remember { mutableStateOf(false) }
     var showGameSetup by remember { mutableStateOf(false) }
-    var expandedTeamId by remember { mutableStateOf<String?>(null) }
+    // Multi-expand: each team the user opens stays open until they tap it again, so several
+    // rosters can be viewed at once for an overview (user request).
+    var expandedTeamIds by remember { mutableStateOf(emptySet<String>()) }
 
     val activeTeams = teams.filter { it.active }
     val archivedTeams = teams.filter { !it.active }
@@ -231,11 +243,18 @@ fun CompetitionDetailScreen(
                     teamPlayers = players
                         .filter { it.teamId == team.id && it.active }
                         .sortedBy { it.uniformNumber?.toIntOrNull() ?: Int.MAX_VALUE },
-                    expanded = expandedTeamId == team.id,
-                    onToggle = { expandedTeamId = if (expandedTeamId == team.id) null else team.id },
-                    onOpenTeam = { onOpenTeam(team.id) },
+                    expanded = team.id in expandedTeamIds,
+                    onToggle = {
+                        expandedTeamIds = if (team.id in expandedTeamIds) {
+                            expandedTeamIds - team.id
+                        } else {
+                            expandedTeamIds + team.id
+                        }
+                    },
+                    onAddPlayer = { number, name -> vm.addPlayer(team.id, number, name) },
                     onArchive = { vm.setTeamActive(team.id, false) },
                     onUpdatePlayer = { vm.updatePlayer(it) },
+                    onOpenPlayer = onOpenPlayer,
                 )
             }
 
@@ -308,10 +327,12 @@ private fun ExpandableTeamCard(
     teamPlayers: List<Player>,
     expanded: Boolean,
     onToggle: () -> Unit,
-    onOpenTeam: () -> Unit,
+    onAddPlayer: (number: String, name: String) -> Unit,
     onArchive: () -> Unit,
     onUpdatePlayer: (Player) -> Unit,
+    onOpenPlayer: (String) -> Unit,
 ) {
+    var showAddPlayer by remember { mutableStateOf(false) }
     Column(
         Modifier
             .fillMaxWidth()
@@ -342,23 +363,35 @@ private fun ExpandableTeamCard(
                     Text("FULL NAME", style = AppTypography.microLabel, color = AppColors.TextMuted, modifier = Modifier.weight(3.5f))
                     Text("CLASS", style = AppTypography.microLabel, color = AppColors.TextMuted, modifier = Modifier.weight(1.5f))
                     Text("STATUS", style = AppTypography.microLabel, color = AppColors.TextMuted, modifier = Modifier.weight(1.7f))
+                    // Column for the per-player details (magnifying glass) button.
+                    Spacer(Modifier.width(44.dp))
                 }
                 if (teamPlayers.isEmpty()) {
                     Text("No players yet.", style = AppTypography.body, color = AppColors.TextMuted)
                 }
                 teamPlayers.forEach { player ->
-                    PlayerInlineRow(player, onUpdatePlayer)
+                    PlayerInlineRow(player, onUpdatePlayer, onOpenDetails = { onOpenPlayer(player.id) })
                 }
                 Row(
                     Modifier.fillMaxWidth().padding(top = AppSpacing.xs),
                     horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    SecondaryButton("Open team", onClick = onOpenTeam, modifier = Modifier.weight(1f))
+                    SecondaryButton("Add Player", onClick = { showAddPlayer = true }, modifier = Modifier.weight(1f))
                     TextButton(onClick = onArchive) { Text("Archive", color = AppColors.TextSecondary) }
                 }
             }
         }
+    }
+
+    if (showAddPlayer) {
+        AddPlayerDialog(
+            onDismiss = { showAddPlayer = false },
+            onAdd = { number, name ->
+                onAddPlayer(number, name)
+                showAddPlayer = false
+            },
+        )
     }
 }
 
@@ -366,9 +399,11 @@ private fun ExpandableTeamCard(
 private fun PlayerInlineRow(
     player: Player,
     onUpdate: (Player) -> Unit,
+    onOpenDetails: () -> Unit,
 ) {
     // The athlete's single official class + status (from import or manual entry). My Opinion
-    // and Final live only on the Observation screen (user request).
+    // and Final live only on the Observation screen (user request). The magnifying glass
+    // opens the full player record in one tap (user request).
     Row(
         Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -378,6 +413,28 @@ private fun PlayerInlineRow(
         InlineField(player.name.orEmpty(), { onUpdate(player.copy(name = it.ifBlank { null })) }, Modifier.weight(3.5f), KeyboardType.Text)
         ClassDropdownCell(player.startingSportClass, { onUpdate(player.copy(startingSportClass = it)) }, Modifier.weight(1.5f))
         StatusDropdownCell(player.sportClassStatus, { onUpdate(player.copy(sportClassStatus = it)) }, Modifier.weight(1.7f))
+        PlayerDetailsButton(onClick = onOpenDetails)
+    }
+}
+
+/** One-tap magnifying glass that opens the full player record (Edit Player). */
+@Composable
+private fun PlayerDetailsButton(onClick: () -> Unit) {
+    Box(
+        Modifier
+            .size(44.dp)
+            .clip(AppShapes.button)
+            .background(AppColors.PanelBlack)
+            .border(1.dp, AppColors.DividerGray, AppShapes.button)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.Search,
+            contentDescription = "View player details",
+            tint = AppColors.Gold,
+            modifier = Modifier.size(22.dp),
+        )
     }
 }
 
@@ -500,6 +557,32 @@ private fun AddTeamDialog(
         confirmButton = {
             TextButton(onClick = { onAdd(name, code, gender) }, enabled = name.isNotBlank()) {
                 Text("Add", color = if (name.isNotBlank()) AppColors.Gold else AppColors.TextMuted)
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = AppColors.TextSecondary) } },
+    )
+}
+
+@Composable
+private fun AddPlayerDialog(
+    onDismiss: () -> Unit,
+    onAdd: (number: String, name: String) -> Unit,
+) {
+    var number by remember { mutableStateOf("") }
+    var name by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = AppColors.CardCharcoal,
+        title = { Text("Add Player", color = AppColors.TextPrimary) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
+                AppTextField(number, { number = it }, "Uniform number", keyboardType = KeyboardType.Number)
+                AppTextField(name, { name = it }, "Player name (optional)")
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onAdd(number, name) }, enabled = number.isNotBlank() || name.isNotBlank()) {
+                Text("Add", color = if (number.isNotBlank() || name.isNotBlank()) AppColors.Gold else AppColors.TextMuted)
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = AppColors.TextSecondary) } },

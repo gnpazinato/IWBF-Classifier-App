@@ -21,6 +21,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,6 +37,9 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.iwbfclassifier.core.nowIso
+import com.iwbfclassifier.data.model.InkStroke
+import com.iwbfclassifier.data.model.NotePage
 import com.iwbfclassifier.data.model.ObservationStatus
 import com.iwbfclassifier.data.model.Player
 import com.iwbfclassifier.data.model.SportClass
@@ -44,11 +48,11 @@ import com.iwbfclassifier.data.repository.CompetitionRepository
 import com.iwbfclassifier.ui.LocalAppContainer
 import com.iwbfclassifier.ui.components.AppTextField
 import com.iwbfclassifier.ui.components.AppTopBar
-import com.iwbfclassifier.ui.components.ClassDropdownCell
-import com.iwbfclassifier.ui.components.StatusDropdownCell
+import com.iwbfclassifier.ui.components.ClassStatusRow
 import com.iwbfclassifier.ui.components.ConfirmDialog
 import com.iwbfclassifier.ui.components.DestructiveButton
 import com.iwbfclassifier.ui.components.EmptyState
+import com.iwbfclassifier.ui.components.NoteCanvasPanel
 import com.iwbfclassifier.ui.components.SaveIndicator
 import com.iwbfclassifier.ui.components.SecondaryButton
 import com.iwbfclassifier.ui.components.SectionLabel
@@ -61,8 +65,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class PlayerEditViewModel(
@@ -81,11 +88,40 @@ class PlayerEditViewModel(
     private val _saving = MutableStateFlow(false)
     val saving = _saving.asStateFlow()
 
+    // Handwritten notes for this player, loaded on demand. null = still loading; the
+    // strokes are written on the Observation screen and shown read-only here so every
+    // pen note appears in the player record (user request). The page carries the canvas
+    // aspect ratio so the notes re-render faithfully (no stretching).
+    private val _notePage = MutableStateFlow<NotePage?>(null)
+    val notePage = _notePage.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            val current = player.filterNotNull().first()
+            _notePage.value = repo.loadNotePage(current.competitionId, current.id)
+        }
+    }
+
     /** Autosave: persist immediately on every change (docs/03 — autosave everything). */
     fun save(updated: Player) {
         viewModelScope.launch {
             _saving.value = true
             repo.updatePlayer(updated)
+            _saving.value = false
+        }
+    }
+
+    /**
+     * Persist edited handwritten notes to the SAME per-player note file the Observation
+     * screen reads, so notes written here show up the next time this athlete is observed —
+     * and vice versa. Scoped to this competition + player, so other competitions are never
+     * affected (user request: each competition is unique).
+     */
+    fun saveNotes(strokes: List<InkStroke>, aspectRatio: Float?) {
+        val current = player.value ?: return
+        viewModelScope.launch {
+            _saving.value = true
+            repo.saveNotePage(current.competitionId, NotePage(current.id, strokes, nowIso(), aspectRatio))
             _saving.value = false
         }
     }
@@ -113,6 +149,7 @@ fun PlayerEditScreen(playerId: String, onBack: () -> Unit) {
     val playerState by vm.player.collectAsStateWithLifecycle()
     val teamName by vm.teamName.collectAsStateWithLifecycle()
     val saving by vm.saving.collectAsStateWithLifecycle()
+    val notePage by vm.notePage.collectAsStateWithLifecycle()
 
     val loaded = playerState
     if (loaded == null) {
@@ -131,6 +168,34 @@ fun PlayerEditScreen(playerId: String, onBack: () -> Unit) {
         draft = transform(draft)
         vm.save(draft)
     }
+
+    // Editable handwritten notes — the SAME per-player file the Observation screen uses, so
+    // anything written here shows up the next time this athlete is observed (user request).
+    // null = still loading.
+    var strokes by remember(loaded.id) { mutableStateOf<List<InkStroke>?>(null) }
+    var undone by remember(loaded.id) { mutableStateOf(emptyList<InkStroke>()) }
+    var notesDirty by remember(loaded.id) { mutableStateOf(false) }
+
+    // Seed the editable strokes once the saved page has loaded (without marking dirty).
+    LaunchedEffect(notePage) {
+        if (strokes == null) notePage?.let { strokes = it.strokes }
+    }
+    // Draw at the ratio the notes were saved with so they stay faithful (no stretching);
+    // a sensible default for brand-new notes.
+    val displayRatio = (notePage?.aspectRatio)?.takeIf { it > 0f } ?: 1.5f
+    // Debounced autosave (docs/03 — autosave everything).
+    LaunchedEffect(strokes, notesDirty) {
+        if (!notesDirty) return@LaunchedEffect
+        val s = strokes ?: return@LaunchedEffect
+        delay(400)
+        vm.saveNotes(s, displayRatio)
+    }
+
+    val onAddStroke: (InkStroke) -> Unit = { st -> strokes = (strokes ?: emptyList()) + st; undone = emptyList(); notesDirty = true }
+    val onErase: (List<InkStroke>) -> Unit = { newList -> strokes = newList; undone = emptyList(); notesDirty = true }
+    val onUndo: () -> Unit = { val s = strokes; if (!s.isNullOrEmpty()) { undone = undone + s.last(); strokes = s.dropLast(1); notesDirty = true } }
+    val onRedo: () -> Unit = { if (undone.isNotEmpty()) { strokes = (strokes ?: emptyList()) + undone.last(); undone = undone.dropLast(1); notesDirty = true } }
+    val onClear: () -> Unit = { if (!strokes.isNullOrEmpty()) { undone = emptyList(); strokes = emptyList(); notesDirty = true } }
 
     Column(Modifier.fillMaxSize().background(AppColors.InkBlack)) {
         AppTopBar(
@@ -156,23 +221,56 @@ fun PlayerEditScreen(playerId: String, onBack: () -> Unit) {
             AppTextField(draft.uniformNumber.orEmpty(), { v -> edit { it.copy(uniformNumber = v.ifBlank { null }) } }, "Uniform Number", keyboardType = KeyboardType.Number)
             AppTextField(draft.name.orEmpty(), { v -> edit { it.copy(name = v.ifBlank { null }) } }, "Player Name")
 
-            // The athlete's single official Sport Class + Status (from import or manual entry).
-            // My Opinion and Final live only on the Observation screen (user request).
+            // The full classification decision — Initial (the athlete's single official class
+            // + status), My Opinion and Final — shown exactly like the Observation screen so
+            // these values are visible/editable outside a game too (user request).
             SectionLabel("Sport Class & Status")
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                ClassDropdownCell(
-                    value = draft.startingSportClass,
-                    onSelect = { sc -> edit { it.copy(startingSportClass = sc) } },
-                    modifier = Modifier.weight(1f),
-                )
-                StatusDropdownCell(
-                    value = draft.sportClassStatus,
-                    onSelect = { st -> edit { it.copy(sportClassStatus = st) } },
-                    modifier = Modifier.weight(1.4f),
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
+                Box(Modifier.weight(1.2f))
+                SectionLabel("Class", Modifier.weight(1f))
+                SectionLabel("Status", Modifier.weight(1.6f))
+            }
+            ClassStatusRow(
+                label = "Initial",
+                sportClass = draft.startingSportClass,
+                onSportClass = { sc -> edit { it.copy(startingSportClass = sc) } },
+                status = draft.sportClassStatus,
+                onStatus = { st -> edit { it.copy(sportClassStatus = st) } },
+            )
+            ClassStatusRow(
+                label = "My Opinion",
+                sportClass = draft.myOpinionSportClass,
+                onSportClass = { sc -> edit { it.copy(myOpinionSportClass = sc) } },
+                status = draft.myOpinionSportClassStatus,
+                onStatus = { st -> edit { it.copy(myOpinionSportClassStatus = st) } },
+            )
+            ClassStatusRow(
+                label = "Final",
+                sportClass = draft.finalSportClass,
+                onSportClass = { sc -> edit { it.copy(finalSportClass = sc) } },
+                status = draft.finalSportClassStatus,
+                onStatus = { st -> edit { it.copy(finalSportClassStatus = st) } },
+            )
+
+            // Editable handwritten notes — same per-player notes shown during a game. What
+            // you write here is saved to the athlete's record and appears the next time they
+            // are observed, and vice versa (user request). S Pen writes; finger navigates.
+            SectionLabel("Handwritten Notes")
+            val editStrokes = strokes
+            if (editStrokes == null) {
+                EmptyState("Loading notes…")
+            } else {
+                NoteCanvasPanel(
+                    strokes = editStrokes,
+                    onAddStroke = onAddStroke,
+                    onErase = onErase,
+                    onUndo = onUndo,
+                    onRedo = onRedo,
+                    onClear = onClear,
+                    canUndo = editStrokes.isNotEmpty(),
+                    canRedo = undone.isNotEmpty(),
+                    modifier = Modifier.fillMaxWidth(),
+                    noteAspectRatio = displayRatio,
                 )
             }
 

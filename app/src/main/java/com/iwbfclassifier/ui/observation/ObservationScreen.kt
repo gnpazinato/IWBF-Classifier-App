@@ -117,10 +117,10 @@ class ObservationViewModel(
 
     suspend fun loadNotes(playerId: String): NotePage = repo.loadNotePage(competitionId, playerId)
 
-    fun saveNotes(playerId: String, strokes: List<InkStroke>) {
+    fun saveNotes(playerId: String, strokes: List<InkStroke>, aspectRatio: Float?) {
         viewModelScope.launch {
             _saving.value = true
-            repo.saveNotePage(competitionId, NotePage(playerId, strokes, nowIso()))
+            repo.saveNotePage(competitionId, NotePage(playerId, strokes, nowIso(), aspectRatio))
             _saving.value = false
         }
     }
@@ -177,6 +177,9 @@ fun ObservationScreen(
     var strokes by remember(selectedPlayerId) { mutableStateOf(emptyList<InkStroke>()) }
     var undone by remember(selectedPlayerId) { mutableStateOf(emptyList<InkStroke>()) }
     var notesDirty by remember(selectedPlayerId) { mutableStateOf(false) }
+    // Latest note-canvas shape (width / height); saved with the notes so they re-render
+    // faithfully on the Edit Player screen even though that canvas has a different size.
+    var canvasAspect by remember { mutableStateOf<Float?>(null) }
 
     LaunchedEffect(selectedPlayerId) {
         val pid = selectedPlayerId
@@ -188,12 +191,12 @@ fun ObservationScreen(
         if (!notesDirty) return@LaunchedEffect
         val pid = selectedPlayerId ?: return@LaunchedEffect
         delay(400)
-        vm.saveNotes(pid, strokes)
+        vm.saveNotes(pid, strokes, canvasAspect)
     }
 
     fun selectPlayer(id: String) {
         val current = selectedPlayerId
-        if (current != null && current != id && notesDirty) vm.saveNotes(current, strokes)
+        if (current != null && current != id && notesDirty) vm.saveNotes(current, strokes, canvasAspect)
         selectedPlayerId = id
     }
 
@@ -280,6 +283,7 @@ fun ObservationScreen(
                         onOpenMoments = { showMoments = true },
                         momentCount = selectedPlayer?.videoEvidence?.size ?: 0,
                         showMomentsButton = videoId == null,
+                        onCanvasAspectRatio = { canvasAspect = it },
                         modifier = Modifier.fillMaxWidth().weight(0.6f),
                     )
                     Row(Modifier.fillMaxWidth().weight(0.4f)) {
@@ -304,6 +308,7 @@ fun ObservationScreen(
                         onOpenMoments = { showMoments = true },
                         momentCount = selectedPlayer?.videoEvidence?.size ?: 0,
                         showMomentsButton = videoId == null,
+                        onCanvasAspectRatio = { canvasAspect = it },
                         modifier = Modifier.weight(0.52f).fillMaxHeight(),
                     )
                     PlayerRail(teamB, players, selectedPlayerId, ::selectPlayer, Modifier.weight(0.24f).fillMaxHeight())
@@ -408,6 +413,7 @@ private fun ObservationWorkArea(
     onOpenMoments: () -> Unit,
     momentCount: Int,
     showMomentsButton: Boolean,
+    onCanvasAspectRatio: (Float) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -435,6 +441,7 @@ private fun ObservationWorkArea(
                 canUndo = strokes.isNotEmpty(),
                 canRedo = undone.isNotEmpty(),
                 modifier = Modifier.fillMaxWidth().weight(1f),
+                onCanvasAspectRatio = onCanvasAspectRatio,
             )
         }
     }

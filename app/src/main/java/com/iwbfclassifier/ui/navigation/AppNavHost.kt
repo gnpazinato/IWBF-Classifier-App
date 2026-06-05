@@ -6,6 +6,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.iwbfclassifier.ui.backup.BackupScreen
 import com.iwbfclassifier.ui.competition.CompetitionDetailScreen
 import com.iwbfclassifier.ui.competition.CompetitionListScreen
 import com.iwbfclassifier.ui.imports.ImportScreen
@@ -21,7 +22,11 @@ fun AppNavHost() {
             CompetitionListScreen(
                 onOpenCompetition = { id -> nav.navigate(Routes.competitionDetail(id)) },
                 onImport = { nav.navigate(Routes.ImportNew) },
+                onOpenBackup = { nav.navigate(Routes.Backup) },
             )
+        }
+        composable(Routes.Backup) {
+            BackupScreen(onBack = { nav.popBackStack() })
         }
         composable(Routes.ImportNew) {
             ImportScreen(
@@ -53,7 +58,7 @@ fun AppNavHost() {
             CompetitionDetailScreen(
                 competitionId = competitionId,
                 onBack = { nav.popBackStack() },
-                onOpenTeam = { teamId -> nav.navigate(Routes.teamRoster(competitionId, teamId)) },
+                onOpenPlayer = { playerId -> nav.navigate(Routes.playerEdit(playerId)) },
                 onOpenObservation = { nav.navigate(Routes.observation(competitionId)) },
                 onOpenImport = { nav.navigate(Routes.importInto(competitionId)) },
             )

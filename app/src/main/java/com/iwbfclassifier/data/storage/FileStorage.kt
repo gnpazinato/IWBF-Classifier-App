@@ -12,7 +12,7 @@ import java.io.File
  *
  * games/, notes/, video_markers/, attachments/, imports/ arrive in later phases.
  */
-class FileStorage(private val root: File) {
+class FileStorage(val root: File) {
 
     private fun File.ensureDir(): File {
         if (!exists()) mkdirs()

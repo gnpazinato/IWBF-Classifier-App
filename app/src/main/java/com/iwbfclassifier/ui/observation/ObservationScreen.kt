@@ -53,6 +53,7 @@ import com.iwbfclassifier.data.model.SportClass
 import com.iwbfclassifier.data.model.SportClassStatus
 import com.iwbfclassifier.data.model.Team
 import com.iwbfclassifier.data.model.VideoEvidence
+import com.iwbfclassifier.data.model.displayJersey
 import com.iwbfclassifier.data.model.displayName
 import com.iwbfclassifier.data.model.teamComparator
 import com.iwbfclassifier.data.repository.CompetitionRepository
@@ -60,6 +61,7 @@ import com.iwbfclassifier.ui.LocalAppContainer
 import com.iwbfclassifier.ui.components.CaptureMomentDialog
 import com.iwbfclassifier.ui.components.ClassStatusRow
 import com.iwbfclassifier.ui.components.EmptyState
+import com.iwbfclassifier.ui.components.InkEditor
 import com.iwbfclassifier.ui.components.KeyMomentsDialog
 import com.iwbfclassifier.ui.components.NoteCanvasPanel
 import com.iwbfclassifier.ui.components.ObservationTopBar
@@ -174,38 +176,31 @@ fun ObservationScreen(
         videoHeight = with(density) { (videoHeight.toPx() + deltaPx).toDp() }.coerceIn(140.dp, 700.dp)
     }
 
-    // Handwritten notes, loaded per player and autosaved.
-    var strokes by remember(selectedPlayerId) { mutableStateOf(emptyList<InkStroke>()) }
-    var undone by remember(selectedPlayerId) { mutableStateOf(emptyList<InkStroke>()) }
-    var notesDirty by remember(selectedPlayerId) { mutableStateOf(false) }
+    // Handwritten notes, loaded per player and autosaved. The editor owns the strokes plus a
+    // snapshot undo/redo history (pen, eraser AND Clear are all undoable) — recreated per
+    // player so undo never reaches across athletes.
+    val editor = remember(selectedPlayerId) { InkEditor() }
     // Latest note-canvas shape (width / height); saved with the notes so they re-render
     // faithfully on the Edit Player screen even though that canvas has a different size.
     var canvasAspect by remember { mutableStateOf<Float?>(null) }
 
     LaunchedEffect(selectedPlayerId) {
         val pid = selectedPlayerId
-        strokes = if (pid != null) vm.loadNotes(pid).strokes else emptyList()
-        undone = emptyList()
-        notesDirty = false
+        editor.reset(if (pid != null) vm.loadNotes(pid).strokes else emptyList())
     }
-    LaunchedEffect(selectedPlayerId, strokes, notesDirty) {
-        if (!notesDirty) return@LaunchedEffect
+    LaunchedEffect(selectedPlayerId, editor.strokes, editor.dirty) {
+        if (!editor.dirty) return@LaunchedEffect
         val pid = selectedPlayerId ?: return@LaunchedEffect
         delay(400)
-        vm.saveNotes(pid, strokes, canvasAspect)
+        vm.saveNotes(pid, editor.strokes, canvasAspect)
+        editor.markSaved()
     }
 
     fun selectPlayer(id: String) {
         val current = selectedPlayerId
-        if (current != null && current != id && notesDirty) vm.saveNotes(current, strokes, canvasAspect)
+        if (current != null && current != id && editor.dirty) vm.saveNotes(current, editor.strokes, canvasAspect)
         selectedPlayerId = id
     }
-
-    val onAddStroke: (InkStroke) -> Unit = { s -> strokes = strokes + s; undone = emptyList(); notesDirty = true }
-    val onErase: (List<InkStroke>) -> Unit = { newList -> strokes = newList; undone = emptyList(); notesDirty = true }
-    val onUndo: () -> Unit = { if (strokes.isNotEmpty()) { undone = undone + strokes.last(); strokes = strokes.dropLast(1); notesDirty = true } }
-    val onRedo: () -> Unit = { if (undone.isNotEmpty()) { strokes = strokes + undone.last(); undone = undone.dropLast(1); notesDirty = true } }
-    val onClear: () -> Unit = { if (strokes.isNotEmpty()) { undone = emptyList(); strokes = emptyList(); notesDirty = true } }
 
     // Store a -5s/+5s, 0.5x slow-motion window centered on [center] for the selected player.
     fun createMoment(center: Int, label: String? = null) {
@@ -274,13 +269,7 @@ fun ObservationScreen(
                         player = selectedPlayer,
                         onUpdate = { updated -> vm.save(updated) },
                         onOpenPlayer = onOpenPlayer,
-                        strokes = strokes,
-                        undone = undone,
-                        onAddStroke = onAddStroke,
-                        onErase = onErase,
-                        onUndo = onUndo,
-                        onRedo = onRedo,
-                        onClear = onClear,
+                        editor = editor,
                         onOpenMoments = { showMoments = true },
                         momentCount = selectedPlayer?.videoEvidence?.size ?: 0,
                         showMomentsButton = videoId == null,
@@ -299,13 +288,7 @@ fun ObservationScreen(
                         player = selectedPlayer,
                         onUpdate = { updated -> vm.save(updated) },
                         onOpenPlayer = onOpenPlayer,
-                        strokes = strokes,
-                        undone = undone,
-                        onAddStroke = onAddStroke,
-                        onErase = onErase,
-                        onUndo = onUndo,
-                        onRedo = onRedo,
-                        onClear = onClear,
+                        editor = editor,
                         onOpenMoments = { showMoments = true },
                         momentCount = selectedPlayer?.videoEvidence?.size ?: 0,
                         showMomentsButton = videoId == null,
@@ -404,13 +387,7 @@ private fun ObservationWorkArea(
     player: Player?,
     onUpdate: (Player) -> Unit,
     onOpenPlayer: (String) -> Unit,
-    strokes: List<InkStroke>,
-    undone: List<InkStroke>,
-    onAddStroke: (InkStroke) -> Unit,
-    onErase: (List<InkStroke>) -> Unit,
-    onUndo: () -> Unit,
-    onRedo: () -> Unit,
-    onClear: () -> Unit,
+    editor: InkEditor,
     onOpenMoments: () -> Unit,
     momentCount: Int,
     showMomentsButton: Boolean,
@@ -433,14 +410,7 @@ private fun ObservationWorkArea(
             )
             ClassDecisionTable(player = player, onUpdate = onUpdate)
             NoteCanvasPanel(
-                strokes = strokes,
-                onAddStroke = onAddStroke,
-                onErase = onErase,
-                onUndo = onUndo,
-                onRedo = onRedo,
-                onClear = onClear,
-                canUndo = strokes.isNotEmpty(),
-                canRedo = undone.isNotEmpty(),
+                editor = editor,
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 onCanvasAspectRatio = onCanvasAspectRatio,
             )
@@ -540,7 +510,7 @@ private fun PlayerHeader(
     ) {
         Column(Modifier.weight(1f)) {
             Text(
-                listOfNotNull(player.uniformNumber?.let { "#$it" }, (player.name ?: "Unknown")).joinToString(" "),
+                listOfNotNull(displayJersey(player.uniformNumber)?.let { "#$it" }, (player.name ?: "Unknown")).joinToString(" "),
                 style = AppTypography.header,
                 color = AppColors.TextPrimary,
             )

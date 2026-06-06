@@ -22,7 +22,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
@@ -38,6 +37,7 @@ import com.iwbfclassifier.ui.components.EmptyState
 import com.iwbfclassifier.ui.components.PlayerChip
 import com.iwbfclassifier.ui.components.SecondaryButton
 import com.iwbfclassifier.ui.components.SectionLabel
+import com.iwbfclassifier.ui.components.UniformNumberField
 import com.iwbfclassifier.ui.theme.AppColors
 import com.iwbfclassifier.ui.theme.AppSpacing
 import kotlinx.coroutines.flow.SharingStarted
@@ -167,7 +167,7 @@ private fun AddPlayerDialog(
     onDismiss: () -> Unit,
     onAdd: (number: String, name: String) -> Unit,
 ) {
-    var number by remember { mutableStateOf("") }
+    var number by remember { mutableStateOf<String?>(null) }
     var name by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -175,12 +175,12 @@ private fun AddPlayerDialog(
         title = { Text("Add Player", color = AppColors.TextPrimary) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
-                AppTextField(number, { number = it }, "Uniform number", keyboardType = KeyboardType.Number)
+                UniformNumberField(value = number, onValueChange = { number = it }, label = "Uniform number")
                 AppTextField(name, { name = it }, "Player name (optional)")
             }
         },
         confirmButton = {
-            TextButton(onClick = { onAdd(number, name) }, enabled = number.isNotBlank() || name.isNotBlank()) {
+            TextButton(onClick = { onAdd(number.orEmpty(), name) }, enabled = !number.isNullOrBlank() || name.isNotBlank()) {
                 Text("Add", color = AppColors.Gold)
             }
         },

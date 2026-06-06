@@ -68,6 +68,8 @@ import com.iwbfclassifier.ui.components.EmptyState
 import com.iwbfclassifier.ui.components.PrimaryButton
 import com.iwbfclassifier.ui.components.SecondaryButton
 import com.iwbfclassifier.ui.components.SectionLabel
+import com.iwbfclassifier.ui.components.UniformNumberCell
+import com.iwbfclassifier.ui.components.UniformNumberField
 import com.iwbfclassifier.ui.theme.AppColors
 import com.iwbfclassifier.ui.theme.AppShapes
 import com.iwbfclassifier.ui.theme.AppSpacing
@@ -410,7 +412,7 @@ private fun PlayerInlineRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm),
     ) {
-        InlineField(player.uniformNumber.orEmpty(), { onUpdate(player.copy(uniformNumber = it.ifBlank { null })) }, Modifier.weight(1f), KeyboardType.Number)
+        UniformNumberCell(player.uniformNumber, { onUpdate(player.copy(uniformNumber = it)) }, Modifier.weight(1f))
         InlineField(player.name.orEmpty(), { onUpdate(player.copy(name = it.ifBlank { null })) }, Modifier.weight(3.5f), KeyboardType.Text)
         ClassDropdownCell(player.startingSportClass, { onUpdate(player.copy(startingSportClass = it)) }, Modifier.weight(1.5f))
         StatusDropdownCell(player.sportClassStatus, { onUpdate(player.copy(sportClassStatus = it)) }, Modifier.weight(1.7f))
@@ -569,7 +571,7 @@ private fun AddPlayerDialog(
     onDismiss: () -> Unit,
     onAdd: (number: String, name: String) -> Unit,
 ) {
-    var number by remember { mutableStateOf("") }
+    var number by remember { mutableStateOf<String?>(null) }
     var name by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -577,13 +579,14 @@ private fun AddPlayerDialog(
         title = { Text("Add Player", color = AppColors.TextPrimary) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
-                AppTextField(number, { number = it }, "Uniform number", keyboardType = KeyboardType.Number)
+                UniformNumberField(value = number, onValueChange = { number = it }, label = "Uniform number")
                 AppTextField(name, { name = it }, "Player name (optional)")
             }
         },
         confirmButton = {
-            TextButton(onClick = { onAdd(number, name) }, enabled = number.isNotBlank() || name.isNotBlank()) {
-                Text("Add", color = if (number.isNotBlank() || name.isNotBlank()) AppColors.Gold else AppColors.TextMuted)
+            val canAdd = !number.isNullOrBlank() || name.isNotBlank()
+            TextButton(onClick = { onAdd(number.orEmpty(), name) }, enabled = canAdd) {
+                Text("Add", color = if (canAdd) AppColors.Gold else AppColors.TextMuted)
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = AppColors.TextSecondary) } },

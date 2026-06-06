@@ -88,7 +88,7 @@ fun InkCanvas(
     strokes: List<InkStroke>,
     tool: CanvasTool,
     onAddStroke: (InkStroke) -> Unit,
-    onErase: (List<InkStroke>) -> Unit,
+    onErase: (List<InkStroke>, Boolean) -> Unit,
     modifier: Modifier = Modifier,
     onCanvasSizeChanged: (Float) -> Unit = {},
 ) {
@@ -126,9 +126,16 @@ fun InkCanvas(
 
                     if (erasing) {
                         var working = strokesState.value
+                        // The first change of this gesture records the undo snapshot, so the
+                        // whole rub comes back in one Undo instead of point-by-point.
+                        var firstChange = true
                         fun rubAt(pos: Offset) {
                             val next = eraseAt(working, pos, eraserRadiusPx, w, h)
-                            if (next !== working) { working = next; onEraseState.value(next) }
+                            if (next !== working) {
+                                working = next
+                                onEraseState.value(next, firstChange)
+                                firstChange = false
+                            }
                         }
                         eraserPos = down.position
                         rubAt(down.position)
@@ -280,18 +287,13 @@ fun NotePreview(
 
 /**
  * Paper note panel: icon-light toolbar + light paper surface with the ink canvas.
- * Strokes are owned by the caller so undo/redo and autosave reset per Player.
+ *
+ * The [editor] owns the strokes and the undo/redo history, so pen, eraser AND Clear are all
+ * undoable (user request) and history resets per Player when the screen calls [InkEditor.reset].
  */
 @Composable
 fun NoteCanvasPanel(
-    strokes: List<InkStroke>,
-    onAddStroke: (InkStroke) -> Unit,
-    onErase: (List<InkStroke>) -> Unit,
-    onUndo: () -> Unit,
-    onRedo: () -> Unit,
-    onClear: () -> Unit,
-    canUndo: Boolean,
-    canRedo: Boolean,
+    editor: InkEditor,
     modifier: Modifier = Modifier,
     onCanvasAspectRatio: (Float) -> Unit = {},
     // When set, the canvas is laid out at this width/height ratio instead of filling the
@@ -304,11 +306,12 @@ fun NoteCanvasPanel(
         NoteToolbar(
             tool = tool,
             onToolChange = { tool = it },
-            onUndo = onUndo,
-            onRedo = onRedo,
-            onClear = onClear,
-            canUndo = canUndo,
-            canRedo = canRedo,
+            onUndo = editor::undo,
+            onRedo = editor::redo,
+            onClear = editor::clear,
+            canUndo = editor.canUndo,
+            canRedo = editor.canRedo,
+            canClear = editor.canClear,
         )
         val canvasModifier = if (noteAspectRatio != null && noteAspectRatio > 0f) {
             Modifier.fillMaxWidth().aspectRatio(noteAspectRatio)
@@ -317,10 +320,10 @@ fun NoteCanvasPanel(
         }
         PaperNoteCanvasContainer(modifier = canvasModifier) {
             InkCanvas(
-                strokes = strokes,
+                strokes = editor.strokes,
                 tool = tool,
-                onAddStroke = onAddStroke,
-                onErase = onErase,
+                onAddStroke = editor::addStroke,
+                onErase = editor::erase,
                 modifier = Modifier.fillMaxSize(),
                 onCanvasSizeChanged = onCanvasAspectRatio,
             )
@@ -337,6 +340,7 @@ private fun NoteToolbar(
     onClear: () -> Unit,
     canUndo: Boolean,
     canRedo: Boolean,
+    canClear: Boolean,
 ) {
     Row(
         Modifier.fillMaxWidth(),
@@ -349,7 +353,7 @@ private fun NoteToolbar(
         Spacer(Modifier.weight(1f))
         ToolButton("Undo", false, enabled = canUndo) { onUndo() }
         ToolButton("Redo", false, enabled = canRedo) { onRedo() }
-        ToolButton("Clear", false, enabled = canUndo) { onClear() }
+        ToolButton("Clear", false, enabled = canClear) { onClear() }
     }
 }
 

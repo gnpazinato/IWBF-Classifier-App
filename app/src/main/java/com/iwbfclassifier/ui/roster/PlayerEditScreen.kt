@@ -29,7 +29,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -52,10 +51,12 @@ import com.iwbfclassifier.ui.components.ClassStatusRow
 import com.iwbfclassifier.ui.components.ConfirmDialog
 import com.iwbfclassifier.ui.components.DestructiveButton
 import com.iwbfclassifier.ui.components.EmptyState
+import com.iwbfclassifier.ui.components.InkEditor
 import com.iwbfclassifier.ui.components.NoteCanvasPanel
 import com.iwbfclassifier.ui.components.SaveIndicator
 import com.iwbfclassifier.ui.components.SecondaryButton
 import com.iwbfclassifier.ui.components.SectionLabel
+import com.iwbfclassifier.ui.components.UniformNumberField
 import com.iwbfclassifier.ui.components.VideoEvidenceSection
 import com.iwbfclassifier.ui.theme.AppColors
 import com.iwbfclassifier.ui.theme.AppShapes
@@ -171,31 +172,26 @@ fun PlayerEditScreen(playerId: String, onBack: () -> Unit) {
 
     // Editable handwritten notes — the SAME per-player file the Observation screen uses, so
     // anything written here shows up the next time this athlete is observed (user request).
-    // null = still loading.
-    var strokes by remember(loaded.id) { mutableStateOf<List<InkStroke>?>(null) }
-    var undone by remember(loaded.id) { mutableStateOf(emptyList<InkStroke>()) }
-    var notesDirty by remember(loaded.id) { mutableStateOf(false) }
+    // The editor owns strokes + a snapshot undo/redo history (pen, eraser AND Clear are all
+    // undoable). `seeded` gates the UI until the saved page has loaded.
+    val editor = remember(loaded.id) { InkEditor() }
+    var seeded by remember(loaded.id) { mutableStateOf(false) }
 
-    // Seed the editable strokes once the saved page has loaded (without marking dirty).
-    LaunchedEffect(notePage) {
-        if (strokes == null) notePage?.let { strokes = it.strokes }
-    }
     // Draw at the ratio the notes were saved with so they stay faithful (no stretching);
     // a sensible default for brand-new notes.
     val displayRatio = (notePage?.aspectRatio)?.takeIf { it > 0f } ?: 1.5f
-    // Debounced autosave (docs/03 — autosave everything).
-    LaunchedEffect(strokes, notesDirty) {
-        if (!notesDirty) return@LaunchedEffect
-        val s = strokes ?: return@LaunchedEffect
-        delay(400)
-        vm.saveNotes(s, displayRatio)
-    }
 
-    val onAddStroke: (InkStroke) -> Unit = { st -> strokes = (strokes ?: emptyList()) + st; undone = emptyList(); notesDirty = true }
-    val onErase: (List<InkStroke>) -> Unit = { newList -> strokes = newList; undone = emptyList(); notesDirty = true }
-    val onUndo: () -> Unit = { val s = strokes; if (!s.isNullOrEmpty()) { undone = undone + s.last(); strokes = s.dropLast(1); notesDirty = true } }
-    val onRedo: () -> Unit = { if (undone.isNotEmpty()) { strokes = (strokes ?: emptyList()) + undone.last(); undone = undone.dropLast(1); notesDirty = true } }
-    val onClear: () -> Unit = { if (!strokes.isNullOrEmpty()) { undone = emptyList(); strokes = emptyList(); notesDirty = true } }
+    // Seed the editor once the saved page has loaded, as the clean (non-dirty) baseline.
+    LaunchedEffect(loaded.id, notePage) {
+        if (!seeded) notePage?.let { editor.reset(it.strokes); seeded = true }
+    }
+    // Debounced autosave (docs/03 — autosave everything).
+    LaunchedEffect(editor.strokes, editor.dirty) {
+        if (!editor.dirty) return@LaunchedEffect
+        delay(400)
+        vm.saveNotes(editor.strokes, displayRatio)
+        editor.markSaved()
+    }
 
     Column(Modifier.fillMaxSize().background(AppColors.InkBlack)) {
         AppTopBar(
@@ -218,7 +214,11 @@ fun PlayerEditScreen(playerId: String, onBack: () -> Unit) {
         ) {
             // Identity
             SectionLabel("Player Identity")
-            AppTextField(draft.uniformNumber.orEmpty(), { v -> edit { it.copy(uniformNumber = v.ifBlank { null }) } }, "Uniform Number", keyboardType = KeyboardType.Number)
+            UniformNumberField(
+                value = draft.uniformNumber,
+                onValueChange = { v -> edit { it.copy(uniformNumber = v) } },
+                modifier = Modifier.fillMaxWidth(),
+            )
             AppTextField(draft.name.orEmpty(), { v -> edit { it.copy(name = v.ifBlank { null }) } }, "Player Name")
 
             // The full classification decision — Initial (the athlete's single official class
@@ -256,19 +256,11 @@ fun PlayerEditScreen(playerId: String, onBack: () -> Unit) {
             // you write here is saved to the athlete's record and appears the next time they
             // are observed, and vice versa (user request). S Pen writes; finger navigates.
             SectionLabel("Handwritten Notes")
-            val editStrokes = strokes
-            if (editStrokes == null) {
+            if (!seeded) {
                 EmptyState("Loading notes…")
             } else {
                 NoteCanvasPanel(
-                    strokes = editStrokes,
-                    onAddStroke = onAddStroke,
-                    onErase = onErase,
-                    onUndo = onUndo,
-                    onRedo = onRedo,
-                    onClear = onClear,
-                    canUndo = editStrokes.isNotEmpty(),
-                    canRedo = undone.isNotEmpty(),
+                    editor = editor,
                     modifier = Modifier.fillMaxWidth(),
                     noteAspectRatio = displayRatio,
                 )

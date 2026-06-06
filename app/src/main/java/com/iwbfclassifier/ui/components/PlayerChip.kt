@@ -24,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.iwbfclassifier.data.model.ObservationStatus
+import com.iwbfclassifier.data.model.displayJersey
 import com.iwbfclassifier.ui.theme.AppColors
 import com.iwbfclassifier.ui.theme.AppShapes
 import com.iwbfclassifier.ui.theme.AppSpacing
@@ -71,7 +72,7 @@ fun PlayerChip(
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = number?.let { "#$it" } ?: "#–",
+                    text = displayJersey(number)?.let { "#$it" } ?: "#–",
                     style = AppTypography.chip,
                     color = AppColors.TextPrimary,
                     fontWeight = FontWeight.Bold,

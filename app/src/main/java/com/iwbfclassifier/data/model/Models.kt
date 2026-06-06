@@ -76,6 +76,17 @@ data class Player(
 )
 
 /**
+ * Jersey number formatted for display: padded to two digits so every number looks uniform
+ * (user request — "08", not "8"), matching the 00–99 picker. A numeric 0–99 is zero-padded;
+ * anything else (blank, out of range, non-numeric) is left as the trimmed original or null.
+ */
+fun displayJersey(number: String?): String? {
+    val trimmed = number?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    val n = trimmed.toIntOrNull() ?: return trimmed
+    return if (n in 0..99) n.toString().padStart(2, '0') else trimmed
+}
+
+/**
  * A YouTube moment attached to a Player (docs/06). A one-tap "Flag Moment" captures
  * the current player time and stores a slow-motion window around it: [startSeconds]
  * (≈ tap − 5s), [endSeconds] (≈ tap + 5s) and [playbackRate] (0.5x by default). The

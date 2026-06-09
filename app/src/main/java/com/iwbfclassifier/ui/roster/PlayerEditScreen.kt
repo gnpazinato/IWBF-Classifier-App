@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -29,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -36,6 +39,8 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.iwbfclassifier.core.extractYoutubeId
+import com.iwbfclassifier.core.formatSeconds
 import com.iwbfclassifier.core.nowIso
 import com.iwbfclassifier.data.model.InkStroke
 import com.iwbfclassifier.data.model.NotePage
@@ -43,6 +48,7 @@ import com.iwbfclassifier.data.model.ObservationStatus
 import com.iwbfclassifier.data.model.Player
 import com.iwbfclassifier.data.model.SportClass
 import com.iwbfclassifier.data.model.SportClassStatus
+import com.iwbfclassifier.data.model.VideoEvidence
 import com.iwbfclassifier.data.repository.CompetitionRepository
 import com.iwbfclassifier.ui.LocalAppContainer
 import com.iwbfclassifier.ui.components.AppTextField
@@ -58,6 +64,8 @@ import com.iwbfclassifier.ui.components.SecondaryButton
 import com.iwbfclassifier.ui.components.SectionLabel
 import com.iwbfclassifier.ui.components.UniformNumberField
 import com.iwbfclassifier.ui.components.VideoEvidenceSection
+import com.iwbfclassifier.ui.components.YouTubePlayerController
+import com.iwbfclassifier.ui.components.YouTubePlayerPanel
 import com.iwbfclassifier.ui.theme.AppColors
 import com.iwbfclassifier.ui.theme.AppShapes
 import com.iwbfclassifier.ui.theme.AppSpacing
@@ -165,6 +173,20 @@ fun PlayerEditScreen(playerId: String, onBack: () -> Unit) {
     var draft by remember(loaded.id) { mutableStateOf(loaded) }
     var confirmDelete by remember(loaded.id) { mutableStateOf(false) }
 
+    // Embedded player for replaying a moment in-app (user request: stay in the app, open only
+    // when the replay link is tapped). Each moment is its own video, so we load+play it directly.
+    val replayController = remember(loaded.id) { YouTubePlayerController() }
+    var replayTarget by remember(loaded.id) { mutableStateOf<VideoEvidence?>(null) }
+    LaunchedEffect(replayTarget?.id) {
+        val ev = replayTarget ?: return@LaunchedEffect
+        replayController.loadAndPlay(
+            videoId = ev.videoId ?: extractYoutubeId(ev.url),
+            startSeconds = ev.startSeconds ?: 0,
+            endSeconds = ev.endSeconds,
+            rate = if (ev.playbackRate > 0.0) ev.playbackRate else 0.5,
+        )
+    }
+
     fun edit(transform: (Player) -> Player) {
         draft = transform(draft)
         vm.save(draft)
@@ -269,11 +291,24 @@ fun PlayerEditScreen(playerId: String, onBack: () -> Unit) {
             // Observation status
             ObservationStatusField(draft.observationStatus) { status -> edit { it.copy(observationStatus = status) } }
 
-            // Video evidence (YouTube links + timestamps)
+            // Video evidence (YouTube links + timestamps). Tapping Replay opens the embedded
+            // player inline (below) instead of leaving the app for YouTube (user request); the
+            // "Open" button still launches YouTube on demand.
+            replayTarget?.let { ev ->
+                MomentReplayPanel(
+                    controller = replayController,
+                    evidence = ev,
+                    onClose = { replayTarget = null },
+                )
+            }
             VideoEvidenceSection(
                 evidence = draft.videoEvidence,
                 onAdd = { ev -> edit { it.copy(videoEvidence = it.videoEvidence + ev) } },
-                onRemove = { ev -> edit { it.copy(videoEvidence = it.videoEvidence.filterNot { x -> x.id == ev.id }) } },
+                onRemove = { ev ->
+                    if (replayTarget?.id == ev.id) replayTarget = null
+                    edit { it.copy(videoEvidence = it.videoEvidence.filterNot { x -> x.id == ev.id }) }
+                },
+                onReplay = { ev -> replayTarget = ev },
             )
 
             // Management (reversible remove + permanent delete)
@@ -296,6 +331,57 @@ fun PlayerEditScreen(playerId: String, onBack: () -> Unit) {
             destructive = true,
             onConfirm = { confirmDelete = false; vm.deletePermanently(onDone = onBack) },
             onDismiss = { confirmDelete = false },
+        )
+    }
+}
+
+/**
+ * In-app replay of a moment, shown inline on the player record only while a moment is selected
+ * (user request: stay in the app, open the player only when the replay link is tapped). Reuses
+ * the same embedded player as the observation screen; the [controller] is driven to load this
+ * moment's own video and play its slow-motion window.
+ */
+@Composable
+private fun MomentReplayPanel(
+    controller: YouTubePlayerController,
+    evidence: VideoEvidence,
+    onClose: () -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(AppShapes.card)
+            .background(AppColors.PanelBlack)
+            .border(1.dp, AppColors.DividerGray, AppShapes.card)
+            .padding(AppSpacing.sm),
+        verticalArrangement = Arrangement.spacedBy(AppSpacing.sm),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    evidence.label?.takeIf { it.isNotBlank() } ?: "YouTube moment",
+                    style = AppTypography.body,
+                    color = AppColors.TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                val window = formatSeconds(evidence.startSeconds)?.let { s ->
+                    formatSeconds(evidence.endSeconds)?.let { e -> "$s–$e" } ?: "@ $s"
+                }
+                val rate = if (evidence.playbackRate != 1.0) "${evidence.playbackRate}x" else null
+                val sub = listOfNotNull(window, rate).joinToString("  ·  ")
+                if (sub.isNotBlank()) {
+                    Text(sub, style = AppTypography.microLabel, color = AppColors.Gold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            TextButton(onClick = onClose) { Text("Close", color = AppColors.Gold) }
+        }
+        YouTubePlayerPanel(
+            controller = controller,
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .clip(AppShapes.card),
         )
     }
 }

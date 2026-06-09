@@ -32,6 +32,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
@@ -513,6 +514,8 @@ private fun PlayerHeader(
                 listOfNotNull(displayJersey(player.uniformNumber)?.let { "#$it" }, (player.name ?: "Unknown")).joinToString(" "),
                 style = AppTypography.header,
                 color = AppColors.TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
         if (showMoments) SecondaryButton("Moments ($momentCount)", onClick = onOpenMoments)

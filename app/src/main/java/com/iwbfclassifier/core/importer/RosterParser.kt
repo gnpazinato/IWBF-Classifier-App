@@ -1,6 +1,7 @@
 package com.iwbfclassifier.core.importer
 
 import android.util.Xml
+import com.iwbfclassifier.core.cleanName
 import com.iwbfclassifier.data.model.SportClass
 import com.iwbfclassifier.data.model.SportClassStatus
 import org.xmlpull.v1.XmlPullParser
@@ -18,7 +19,7 @@ object RosterParser {
 
     fun parse(fileName: String, bytes: ByteArray): ParsedRoster {
         val lower = fileName.lowercase()
-        return when {
+        val roster = when {
             lower.endsWith(".zip") -> parseZip(fileName, bytes)
             lower.endsWith(".csv") -> parseCsv(fileName, bytes)
             lower.endsWith(".docx") -> singleFileRoster(fileName) { parseDocx(fileName, bytes) }
@@ -30,6 +31,17 @@ object RosterParser {
                 warnings = listOf("Unsupported file type: $fileName. Use the spreadsheet template (CSV/XLSX), ZIP, DOCX or PDF."),
             )
         }
+        // Collapse any name that wrapped across two lines in the source document to a single
+        // line, so the import preview — and the committed records — never carry an embedded
+        // line break (which the single-line edit fields would otherwise hide).
+        return roster.copy(
+            teams = roster.teams.map { t ->
+                t.copy(
+                    name = cleanName(t.name) ?: t.name,
+                    players = t.players.map { p -> p.copy(name = cleanName(p.name)) },
+                )
+            },
+        )
     }
 
     private inline fun singleFileRoster(fileName: String, block: () -> ParsedTeam?): ParsedRoster {

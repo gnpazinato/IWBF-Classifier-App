@@ -37,6 +37,9 @@ class YouTubePlayerController {
 
     private var pendingVideoId: String? = null
     private var pendingStart: Int = 0
+    private var pendingWindow: PendingWindow? = null
+
+    private data class PendingWindow(val videoId: String, val start: Int, val end: Int?, val rate: Double)
 
     /** Latest known player position in seconds (0 until the page reports one). */
     fun currentSeconds(): Double = lastSeconds
@@ -53,6 +56,22 @@ class YouTubePlayerController {
         }
     }
 
+    /**
+     * Load [videoId] and immediately play its slow-mo window — used by the player record, where
+     * each moment is its own video (unlike the observation screen, which keeps one game video
+     * loaded and only seeks within it via [playWindow]). Safe to call before the player is
+     * ready — it queues. Auto-pauses at [endSeconds].
+     */
+    fun loadAndPlay(videoId: String?, startSeconds: Int, endSeconds: Int?, rate: Double) {
+        if (videoId.isNullOrBlank()) return
+        if (isReady) {
+            loadedVideoId = videoId
+            js("loadWindow('$videoId', $startSeconds, ${endSeconds ?: -1}, $rate);")
+        } else {
+            pendingWindow = PendingWindow(videoId, startSeconds, endSeconds, rate)
+        }
+    }
+
     /** Seek to [startSeconds], set [rate], play, and auto-pause at [endSeconds] (in-app slow-mo replay). */
     fun playWindow(startSeconds: Int, endSeconds: Int?, rate: Double) {
         js("playWindow($startSeconds, ${endSeconds ?: -1}, $rate);")
@@ -63,6 +82,13 @@ class YouTubePlayerController {
 
     internal fun onReadyInternal() {
         isReady = true
+        pendingWindow?.let { w ->
+            loadedVideoId = w.videoId
+            js("loadWindow('${w.videoId}', ${w.start}, ${w.end ?: -1}, ${w.rate});")
+            pendingWindow = null
+            pendingVideoId = null
+            return
+        }
         pendingVideoId?.let { v ->
             loadedVideoId = v
             js("loadVid('$v', $pendingStart);")
@@ -72,6 +98,13 @@ class YouTubePlayerController {
 
     internal fun onTimeInternal(t: Double) {
         lastSeconds = t
+    }
+
+    /** The hosting WebView was destroyed (panel left composition) — go back to "not ready" so a
+     * later replay queues until the freshly created WebView reports ready again. */
+    internal fun detach() {
+        isReady = false
+        webView = null
     }
 
     private fun js(script: String) {
@@ -163,7 +196,7 @@ fun YouTubePlayerPanel(
             }
         },
         onRelease = { wv ->
-            controller.webView = null
+            controller.detach()
             wv.destroy()
         },
     )
@@ -199,6 +232,7 @@ private const val PLAYER_HTML = """
 <script>
 var player = null;
 var endTime = -1;
+var pendingRate = -1;
 function showErr(msg){ document.getElementById('errmsg').textContent = msg;
   document.getElementById('err').style.display='flex'; }
 function hideErr(){ document.getElementById('err').style.display='none'; }
@@ -215,7 +249,15 @@ function onYouTubeIframeAPIReady() {
                   enablejsapi: 1, origin: 'https://appassets.androidplatform.net' },
     events: {
       'onReady': function() { if (window.Android && Android.onReady) Android.onReady(); },
-      'onStateChange': function(e) { if (e.data == 1 || e.data == 3) hideErr(); },
+      'onStateChange': function(e) {
+        if (e.data == 1 || e.data == 3) hideErr();
+        // Apply the slow-mo rate once the freshly loaded moment actually starts playing
+        // (setPlaybackRate before the new video has buffered does not stick).
+        if (e.data == 1 && pendingRate > 0) {
+          try { player.setPlaybackRate(pendingRate); } catch (err) {}
+          pendingRate = -1;
+        }
+      },
       'onError': function(e) {
         // Show the exact code so a failing video can be diagnosed precisely. The overlay
         // auto-hides if playback then starts (onStateChange), so a transient error is fine.
@@ -240,7 +282,14 @@ function onYouTubeIframeAPIReady() {
     } catch (e) {}
   }, 250);
 }
-function loadVid(id, start) { if (!player) return; hideErr(); endTime = -1; player.loadVideoById({videoId: id, startSeconds: start}); }
+function loadVid(id, start) { if (!player) return; hideErr(); endTime = -1; pendingRate = -1; player.loadVideoById({videoId: id, startSeconds: start}); }
+function loadWindow(id, start, end, rate) {
+  if (!player) return;
+  hideErr();
+  endTime = end;
+  pendingRate = rate;
+  player.loadVideoById({videoId: id, startSeconds: start});
+}
 function playWindow(start, end, rate) {
   if (!player) return;
   endTime = end;

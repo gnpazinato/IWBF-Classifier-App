@@ -1,5 +1,6 @@
 package com.iwbfclassifier.data.repository
 
+import com.iwbfclassifier.core.cleanName
 import com.iwbfclassifier.core.importer.ImportResult
 import com.iwbfclassifier.core.importer.ParsedTeam
 import com.iwbfclassifier.core.newId
@@ -58,9 +59,21 @@ class JsonCompetitionRepository(
                 runCatching { allPlayers += AppJson.decodeFromString<Player>(f.readText()) }
             }
         }
+        // One-time self-heal: older imports could store a name with an embedded line break
+        // (a name that wrapped across two lines in the source document). Collapse any such
+        // name to a single line and re-persist it, so the broken two-line display is fixed on
+        // upgrade and the full text becomes visible/editable in the single-line name fields.
+        val healedTeams = allTeams.map { t ->
+            val cleaned = cleanName(t.name) ?: t.name
+            if (cleaned != t.name) t.copy(name = cleaned).also { persist(it) } else t
+        }
+        val healedPlayers = allPlayers.map { p ->
+            val cleaned = cleanName(p.name)
+            if (cleaned != p.name) p.copy(name = cleaned).also { persist(it) } else p
+        }
         _competitions.value = comps.sortedByDescending { it.createdAt }
-        _teams.value = allTeams
-        _players.value = allPlayers
+        _teams.value = healedTeams
+        _players.value = healedPlayers
     }
 
     // --- Competition ---
@@ -101,7 +114,7 @@ class JsonCompetitionRepository(
             val team = Team(
                 id = newId(),
                 competitionId = competitionId,
-                name = name.ifBlank { "New Team" },
+                name = cleanName(name) ?: "New Team",
                 code = code?.ifBlank { null },
                 gender = gender?.ifBlank { null },
             )
@@ -111,8 +124,9 @@ class JsonCompetitionRepository(
         }
 
     override suspend fun updateTeam(team: Team) = mutex.withLock {
-        persist(team)
-        _teams.value = _teams.value.map { if (it.id == team.id) team else it }
+        val updated = team.copy(name = cleanName(team.name) ?: team.name)
+        persist(updated)
+        _teams.value = _teams.value.map { if (it.id == updated.id) updated else it }
     }
 
     override suspend fun setTeamActive(teamId: String, active: Boolean) = mutex.withLock {
@@ -147,7 +161,7 @@ class JsonCompetitionRepository(
             competitionId = competitionId,
             teamId = teamId,
             uniformNumber = uniformNumber?.ifBlank { null },
-            name = name?.ifBlank { null },
+            name = cleanName(name),
             createdAt = now,
             updatedAt = now,
         )
@@ -157,7 +171,7 @@ class JsonCompetitionRepository(
     }
 
     override suspend fun updatePlayer(player: Player) = mutex.withLock {
-        val updated = player.copy(updatedAt = nowIso())
+        val updated = player.copy(name = cleanName(player.name), updatedAt = nowIso())
         persist(updated)
         _players.value = _players.value.map { if (it.id == updated.id) updated else it }
     }
@@ -216,7 +230,7 @@ class JsonCompetitionRepository(
                 val team = Team(
                     id = newId(),
                     competitionId = competitionId,
-                    name = pt.name.ifBlank { "New Team" },
+                    name = cleanName(pt.name) ?: "New Team",
                     code = pt.code?.ifBlank { null },
                     gender = pt.gender,
                     source = SourceInfo(type = "import", fileName = pt.sourceFile),
@@ -228,7 +242,7 @@ class JsonCompetitionRepository(
                         competitionId = competitionId,
                         teamId = team.id,
                         uniformNumber = pp.number?.ifBlank { null },
-                        name = pp.name?.ifBlank { null },
+                        name = cleanName(pp.name),
                         iwbfId = pp.iwbfId?.ifBlank { null },
                         dateOfBirth = pp.dob?.ifBlank { null },
                         importedSportClass = pp.importedClass,

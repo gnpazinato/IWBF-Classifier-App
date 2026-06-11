@@ -77,13 +77,16 @@ data class Player(
 
 /**
  * Jersey number formatted for display: padded to two digits so every number looks uniform
- * (user request — "08", not "8"), matching the 00–99 picker. A numeric 0–99 is zero-padded;
+ * (user request — "08", not "8"), matching the 0 / 00–99 picker. "0" and "00" are distinct
+ * jerseys in basketball and are shown verbatim; any other numeric 1–99 is zero-padded;
  * anything else (blank, out of range, non-numeric) is left as the trimmed original or null.
  */
 fun displayJersey(number: String?): String? {
     val trimmed = number?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    // "0" and "00" are different jerseys — never collapse one into the other.
+    if (trimmed == "0" || trimmed == "00") return trimmed
     val n = trimmed.toIntOrNull() ?: return trimmed
-    return if (n in 0..99) n.toString().padStart(2, '0') else trimmed
+    return if (n in 1..99) n.toString().padStart(2, '0') else trimmed
 }
 
 /**

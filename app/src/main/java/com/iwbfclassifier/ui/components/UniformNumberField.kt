@@ -7,12 +7,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
@@ -34,10 +36,11 @@ import com.iwbfclassifier.ui.theme.AppSpacing
 import com.iwbfclassifier.ui.theme.AppTypography
 
 /**
- * Pen-first uniform number picker (user request): tap the field to open a 00–99 grid and
- * pick the jersey with the S Pen — no on-screen keyboard during a game. Rows are decades
- * (00–09, 10–19 …) so a number is easy to find. [onValueChange] gets the two-digit string,
- * or null when "No number" is chosen.
+ * Pen-first uniform number picker (user request): tap the field to open a 0 / 00–99 grid and
+ * pick the jersey with the S Pen — no on-screen keyboard during a game. A single "0" sits on
+ * its own first row (distinct from "00"), then decades (00–09, 10–19 …) so a number is easy to
+ * find. [onValueChange] gets the picked string ("0", or two-digit "00"–"99"), or null when
+ * "No number" is chosen.
  */
 @Composable
 fun UniformNumberField(
@@ -83,7 +86,7 @@ fun UniformNumberField(
 }
 
 /**
- * Compact variant of [UniformNumberField] for an inline roster table cell: same 00–99 pen
+ * Compact variant of [UniformNumberField] for an inline roster table cell: same 0 / 00–99 pen
  * picker, styled to match the neighbouring class/status dropdown cells (no label).
  */
 @Composable
@@ -128,7 +131,16 @@ private fun UniformNumberPickerDialog(
     onPick: (String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val currentInt = current?.trim()?.toIntOrNull()
+    val currentNorm = current?.trim()?.takeIf { it.isNotEmpty() }
+    // Highlight the cell matching the stored value. "0" and "00" are distinct jerseys, so they
+    // light up only on an exact string match; every other value also matches its padded cell
+    // numerically, so a legacy un-padded import like "5" still selects the "05" cell.
+    fun cellSelected(opt: String): Boolean {
+        val cur = currentNorm ?: return false
+        if (cur == opt) return true
+        if (opt == "0" || cur == "0" || cur == "00") return false
+        return cur.toIntOrNull() != null && cur.toIntOrNull() == opt.toIntOrNull()
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = AppColors.CardCharcoal,
@@ -140,11 +152,20 @@ private fun UniformNumberPickerDialog(
                 horizontalArrangement = Arrangement.spacedBy(AppSpacing.xs),
                 verticalArrangement = Arrangement.spacedBy(AppSpacing.xs),
             ) {
+                // Single "0" alone on its own row (left), so the 00–09, 10–19 … rows below stay aligned.
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.xs)) {
+                        Box(Modifier.weight(1f)) {
+                            NumberCell(text = "0", selected = cellSelected("0"), onClick = { onPick("0") })
+                        }
+                        Spacer(Modifier.weight(9f))
+                    }
+                }
                 items(count = 100) { i ->
                     val num = i.toString().padStart(2, '0')
                     NumberCell(
                         text = num,
-                        selected = currentInt == i,
+                        selected = cellSelected(num),
                         onClick = { onPick(num) },
                     )
                 }
